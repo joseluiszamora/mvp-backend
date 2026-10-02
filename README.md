@@ -1,6 +1,6 @@
 # Panel Admin
 
-Panel administrativo de demostración en Next.js. Incluye un resumen de usuarios, una página de usuarios con búsqueda y filtro, configuración de colores, menú adaptable y temas claro/oscuro. Los datos son ficticios y las rutas son públicas.
+Panel administrativo de demostración en Next.js. Incluye un resumen de usuarios, una página de usuarios con búsqueda y filtro, configuración de colores, menú adaptable y temas claro/oscuro. El menú de escritorio se puede contraer y la cabecera permite activar la pantalla completa. Los datos son ficticios y las rutas son públicas.
 
 ## Requisitos
 
@@ -24,5 +24,7 @@ Abrir [http://localhost:3000](http://localhost:3000). Para verificar el proyecto
 - `src/lib/appearance.ts`: opciones y claves de almacenamiento para los colores de acento.
 
 El tema comienza con la preferencia del sistema. En Configuración puedes elegir por separado el color de acento de los modos claro y oscuro. El tema y ambos colores se guardan en este navegador; azul es el valor inicial.
+
+El estado contraído del menú también se guarda en el navegador. La pantalla completa depende de la compatibilidad y los permisos del navegador; se puede salir con el botón de la cabecera.
 
 Para contribuir o continuar el desarrollo, consulta [AGENTS.md](AGENTS.md) y [el contexto del proyecto](docs/project-context.md).
