@@ -8,6 +8,7 @@ Este repositorio contiene **Panel Admin**, un panel administrativo de demostraci
 - Los textos visibles al usuario deben estar en español. Conserva las etiquetas accesibles, el foco visible y la navegación por teclado.
 - Mantén el diseño adaptable: menú lateral permanente en escritorio, menú desplegable en móvil y contenido sin desbordamiento horizontal.
 - Respeta los temas claro y oscuro. Usa las variables de color definidas en `src/app/globals.css`; evita colores fijos que pierdan contraste al cambiar de tema.
+- Conserva la selección independiente de color de acento para cada tema. Si añades un color, actualiza `src/lib/appearance.ts`, las reglas de ambos temas en `src/app/globals.css` y la vista previa de Configuración.
 - Añade `"use client"` solo donde haya estado, efectos o interacción del navegador. Prefiere componentes de servidor para páginas y contenido estático.
 - La información de usuarios sigue siendo ficticia y centralizada en `src/lib/users.ts`. No presentes acciones de autenticación, edición, eliminación o persistencia como funcionales hasta que se implementen realmente.
 - Si agregas una página, incorpora su enlace al menú cuando corresponda, metadatos y estados vacíos o de error pertinentes.
