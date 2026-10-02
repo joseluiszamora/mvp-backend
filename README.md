@@ -23,3 +23,5 @@ Abrir [http://localhost:3000](http://localhost:3000). Para verificar el proyecto
 - `src/lib/users.ts`: tipos y datos ficticios compartidos entre las dos páginas.
 
 El tema comienza con la preferencia del sistema y guarda la selección del usuario en el navegador.
+
+Para contribuir o continuar el desarrollo, consulta [AGENTS.md](AGENTS.md) y [el contexto del proyecto](docs/project-context.md).
