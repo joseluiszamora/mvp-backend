@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --background: #f7f8fb;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --foreground: #172033;
+  --muted: #667085;
+  --border: #e6e9ef;
+  --accent: #2663d8;
+  --accent-soft: #eaf1ff;
+  --accent-text: #2058be;
+  --success-soft: #e9f7ee;
+  --success-text: #187445;
+  --neutral-soft: #f0f2f5;
+  --neutral-text: #596579;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0d1421;
+  --surface: #151f2e;
+  --surface-muted: #1b2738;
+  --foreground: #eef3fb;
+  --muted: #a6b4ca;
+  --border: #2b3a4d;
+  --accent: #6a9aff;
+  --accent-soft: #1b345c;
+  --accent-text: #a9c5ff;
+  --success-soft: #173a2b;
+  --success-text: #9de4b9;
+  --neutral-soft: #263348;
+  --neutral-text: #c2cee0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-success-soft: var(--success-soft);
+  --color-success-text: var(--success-text);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-neutral-text: var(--neutral-text);
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; }
+body { margin: 0; background: var(--background); color: var(--foreground); font-family: Arial, Helvetica, sans-serif; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }

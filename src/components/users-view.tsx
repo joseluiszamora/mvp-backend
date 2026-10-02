@@ -1,0 +1,20 @@
+"use client";
+
+import { Search, UsersRound } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Avatar, Badge, Card, PageHeading } from "@/components/ui";
+import type { DemoUser } from "@/lib/users";
+
+export function UsersView({ users }: { users: DemoUser[] }) {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("Todos");
+  const filtered = useMemo(() => {
+    const term = query.trim().toLocaleLowerCase("es");
+    return users.filter((user) => (user.name.toLocaleLowerCase("es").includes(term) || user.email.toLocaleLowerCase("es").includes(term)) && (status === "Todos" || user.status === status));
+  }, [users, query, status]);
+  return <><PageHeading eyebrow="Gestión" title="Usuarios" description="Consulta los perfiles y estados de los usuarios del panel." aside={<span className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted">Datos de demostración</span>} />
+    <Card><div className="flex flex-col gap-4 border-b border-border p-5 sm:flex-row sm:items-end sm:justify-between sm:p-6"><div><h2 className="text-base font-bold">Listado de usuarios</h2><p className="mt-1 text-sm text-muted">{filtered.length} de {users.length} usuarios</p></div><div className="flex flex-col gap-3 sm:flex-row"><label className="block"><span className="mb-1.5 block text-xs font-semibold text-muted">Buscar usuario</span><span className="flex h-10 items-center gap-2 rounded-xl border border-border bg-surface px-3 focus-within:ring-2 focus-within:ring-accent"><Search size={17} className="text-muted" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nombre o correo" className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-muted sm:w-48" type="search" /></span></label><label className="block"><span className="mb-1.5 block text-xs font-semibold text-muted">Estado</span><select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground sm:w-36"><option>Todos</option><option>Activo</option><option>Inactivo</option></select></label></div></div>
+      {filtered.length === 0 ? <div className="flex flex-col items-center px-5 py-16 text-center"><span className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-accent-soft text-accent-text"><UsersRound size={24} /></span><h3 className="font-semibold">No se encontraron usuarios</h3><p className="mt-2 max-w-sm text-sm leading-6 text-muted">Prueba con otro nombre, correo o estado para ver más resultados.</p></div> : <><div className="hidden overflow-x-auto md:block"><table className="w-full border-collapse text-left text-sm"><thead className="bg-surface-muted text-xs font-semibold uppercase tracking-wider text-muted"><tr><th scope="col" className="px-6 py-4">Usuario</th><th scope="col" className="px-6 py-4">Rol</th><th scope="col" className="px-6 py-4">Estado</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((user) => <tr key={user.id}><td className="px-6 py-4"><div className="flex items-center gap-3"><Avatar name={user.name} /><div className="min-w-0"><p className="font-semibold">{user.name}</p><p className="text-xs text-muted">{user.email}</p></div></div></td><td className="px-6 py-4 text-muted">{user.role}</td><td className="px-6 py-4"><Badge active={user.status === "Activo"} /></td></tr>)}</tbody></table></div><ul className="divide-y divide-border md:hidden">{filtered.map((user) => <li key={user.id} className="p-5"><div className="flex items-center gap-3"><Avatar name={user.name} size="lg" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{user.name}</p><p className="truncate text-xs text-muted">{user.email}</p></div></div><div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3"><span className="text-sm text-muted">{user.role}</span><Badge active={user.status === "Activo"} /></div></li>)}</ul></>}
+    </Card>
+  </>;
+}
