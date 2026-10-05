@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
+import { ProtectedPage } from "@/components/protected-page";
 import { UsersView } from "@/components/users-view";
-import { users } from "@/lib/users";
 
-export const metadata: Metadata = { title: "Usuarios", description: "Listado de usuarios de demostración." };
-export default function UsersPage() { return <UsersView users={users} />; }
+export const metadata: Metadata = { title: "Usuarios", description: "Listado de usuarios de la empresa." };
+export default function UsersPage() { return <ProtectedPage module="users"><UsersView /></ProtectedPage>; }

@@ -3,33 +3,38 @@
 import { Check, Palette } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card, PageHeading } from "@/components/ui";
+import { useDemo } from "@/components/demo-provider";
 import { accentChoices, accentStorageKey, isAccentColor, type AccentColor, type AppearanceMode } from "@/lib/appearance";
 
 type Preferences = Record<AppearanceMode, AccentColor>;
 const defaultPreferences: Preferences = { light: "blue", dark: "blue" };
 
 export function AppearanceSettings() {
+  const { state, service } = useDemo();
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
 
   useEffect(() => {
     const saved: Preferences = { ...defaultPreferences };
+    const account = state.preferences[`${state.accountId}:${state.organizationId}`];
     for (const mode of ["light", "dark"] as const) {
       try {
-        const value = window.localStorage.getItem(accentStorageKey(mode));
+        const value = account?.[mode === "light" ? "accentLight" : "accentDark"] ?? state.organizations.find((item) => item.id === state.organizationId)?.color;
         if (isAccentColor(value)) saved[mode] = value;
       } catch {
         // The palette remains usable when browser storage is unavailable.
       }
     }
     setPreferences(saved);
-  }, []);
+  }, [state.accountId, state.organizationId, state.preferences, state.organizations]);
 
-  function chooseColor(mode: AppearanceMode, color: AccentColor) {
+  async function chooseColor(mode: AppearanceMode, color: AccentColor) {
+    const previous = preferences[mode];
     setPreferences((current) => ({ ...current, [mode]: color }));
     document.documentElement.setAttribute(`data-accent-${mode}`, color);
     try { window.localStorage.setItem(accentStorageKey(mode), color); } catch {
       // The current-page selection still works without storage.
     }
+    try { await service.updatePreferences(state.organizationId, { [mode === "light" ? "accentLight" : "accentDark"]: color }); } catch { setPreferences((current) => ({ ...current, [mode]: previous })); document.documentElement.setAttribute(`data-accent-${mode}`, previous); }
   }
 
   return <>

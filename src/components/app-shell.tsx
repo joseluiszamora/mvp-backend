@@ -1,78 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutDashboard, Menu, PanelLeftClose, PanelLeftOpen, Settings2, UsersRound, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { LayoutDashboard, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { DemoProvider, useDemo } from "@/components/demo-provider";
 import { FullscreenToggle } from "@/components/fullscreen-toggle";
-import { Avatar } from "@/components/ui";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { demoAdmin } from "@/lib/users";
+import { Avatar } from "@/components/ui";
+import { memberFor, modules, visibleModule } from "@/lib/demo";
 
-const links = [
-  { href: "/", label: "Inicio", icon: LayoutDashboard },
-  { href: "/usuarios", label: "Usuarios", icon: UsersRound },
-  { href: "/configuracion", label: "Configuración", icon: Settings2 },
-];
-const sidebarStorageKey = "panel-admin-sidebar-collapsed";
-
-export function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const asideRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    try { setCollapsed(window.localStorage.getItem(sidebarStorageKey) === "true"); } catch {
-      // The control remains usable when browser storage is unavailable.
-    }
-  }, []);
+export function AppShell({ children }: { children: React.ReactNode }) { return <DemoProvider><Shell>{children}</Shell></DemoProvider>; }
+function Shell({ children }: { children: React.ReactNode }) {
+  const { state, ready, notice, dirty, setDirty, signIn, signOut, switchOrganization } = useDemo();
+  const pathname = usePathname(); const router = useRouter(); const [branding, setBranding] = useState<{name:string;logoLight:string|null;logoDark:string|null}|null>(null);
+  useEffect(() => { const org = state.organizations.find((item) => item.id === state.organizationId); document.title = state.accountId && org ? `${modules.find((item) => item.href === pathname)?.label ?? "Panel"} | ${org.name}` : `Acceso | ${branding?.name ?? "Panel Admin"}`; }, [pathname, state.accountId, state.organizations, state.organizationId, branding?.name]);
+  const [menuOpen, setMenuOpen] = useState(false); const [collapsed, setCollapsed] = useState(false); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [loginError, setLoginError] = useState(""); const [busy, setBusy] = useState(false);
+  useEffect(() => { fetch("/api/branding", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((value) => { if (value) setBranding(value); }).catch(() => {}); }, []);
+  const menuButton = useRef<HTMLButtonElement>(null); const aside = useRef<HTMLElement>(null);
+  useEffect(() => { try { setCollapsed(localStorage.getItem("panel-admin-sidebar-collapsed") === "true"); } catch {} }, []);
   useEffect(() => { setMenuOpen(false); }, [pathname]);
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setMenuOpen(false); menuButtonRef.current?.focus(); }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [menuOpen]);
-  useEffect(() => {
-    if (menuOpen) asideRef.current?.querySelector<HTMLAnchorElement>("a")?.focus();
-  }, [menuOpen]);
-
-  function toggleCollapsed() {
-    const next = !collapsed;
-    setCollapsed(next);
-    try { window.localStorage.setItem(sidebarStorageKey, String(next)); } catch {
-      // The current-page layout still works without storage.
-    }
-  }
-
+  useEffect(() => { if (!menuOpen) return; const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { setMenuOpen(false); menuButton.current?.focus(); } }; document.addEventListener("keydown", onKey); aside.current?.querySelector<HTMLAnchorElement>("a")?.focus(); return () => document.removeEventListener("keydown", onKey); }, [menuOpen]);
+  const current = state.users.find((user) => user.id === state.accountId);
+  const organization = state.organizations.find((item) => item.id === state.organizationId);
+  const accessibleOrganizations = state.organizations.filter((org) => memberFor(state, state.accountId, org.id)?.status === "Activo");
+  if (!ready) return <div className="p-8 text-muted">Cargando panel…</div>;
+  if (!state.accountId) return <main className="flex min-h-screen items-center justify-center p-4"><form className="w-full max-w-md rounded-2xl border border-border bg-surface p-7 shadow-lg" onSubmit={async (event) => { event.preventDefault(); setBusy(true); setLoginError(""); try { await signIn(email, password); setPassword(""); router.push("/"); } catch (error) { setLoginError(error instanceof Error ? error.message : "No se pudo iniciar sesión."); } finally { setBusy(false); } }}><span className="inline-flex size-12 items-center justify-center rounded-xl bg-accent-soft text-accent-text">{branding?.logoLight || branding?.logoDark ? <><img alt="" src={branding.logoLight ?? branding.logoDark ?? undefined} className="size-10 object-contain dark:hidden" /><img alt="" src={branding.logoDark ?? branding.logoLight ?? undefined} className="hidden size-10 object-contain dark:block" /></> : <LayoutDashboard />}</span><h1 className="mt-5 text-2xl font-bold">{branding?.name ?? "Panel Admin"}</h1><p className="mt-2 text-sm text-muted">Accede con la cuenta habilitada por el administrador.</p><label className="mt-6 block text-sm font-semibold">Correo<input className="mt-2 w-full rounded-xl border border-border bg-surface p-3" type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} /></label><label className="mt-4 block text-sm font-semibold">Contraseña<input className="mt-2 w-full rounded-xl border border-border bg-surface p-3" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label><button className="mt-5 w-full rounded-xl bg-accent px-4 py-3 font-semibold text-background disabled:opacity-50" disabled={busy}>Entrar</button>{loginError && <p role="alert" className="mt-3 text-sm text-accent-text">{loginError}</p>}{notice && <p role="status" className="mt-3 text-sm">{notice}</p>}</form></main>;
+  if (memberFor(state, state.accountId)?.status !== "Activo") return <main className="mx-auto max-w-lg p-8"><h1 className="text-xl font-bold">Cuenta inactiva</h1><p className="mt-2 text-muted">Contacta con el administrador para recuperar el acceso.</p><button className="mt-4 rounded-lg border border-border px-3 py-2" onClick={signOut}>Volver al acceso</button></main>;
+  const activeModule = modules.find((item) => item.href === pathname || item.href !== "/" && pathname.startsWith(item.href + "/"));
+  const denied = activeModule && !visibleModule(state, activeModule.id);
+  const links = modules.filter((item) => visibleModule(state, item.id));
   return <div className={`min-h-screen ${collapsed ? "lg:pl-20" : "lg:pl-64"}`}>
-    {menuOpen && <button type="button" aria-label="Cerrar menú lateral" className="fixed inset-0 z-30 bg-slate-950/50 lg:hidden" onClick={() => setMenuOpen(false)} />}
-    <aside ref={asideRef} id="menu-lateral" aria-label="Menú principal" className={`fixed inset-y-0 left-0 z-40 w-64 border-r border-border bg-surface transition-[width,transform,visibility] duration-200 lg:visible lg:translate-x-0 ${collapsed ? "lg:w-20" : "lg:w-64"} ${menuOpen ? "visible translate-x-0" : "invisible -translate-x-full"}`}>
-      <div className={`flex h-20 items-center gap-3 border-b border-border px-6 ${collapsed ? "lg:justify-center lg:px-3" : ""}`}>
-        <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-text ${collapsed ? "lg:hidden" : ""}`}><LayoutDashboard size={20} /></span>
-        <span className={`whitespace-nowrap text-lg font-bold tracking-tight ${collapsed ? "lg:hidden" : ""}`}>Panel Admin</span>
-        <button type="button" aria-label="Cerrar menú" onClick={() => { setMenuOpen(false); menuButtonRef.current?.focus(); }} className="ml-auto rounded-lg p-1 text-muted lg:hidden"><X size={20} /></button>
-        <button type="button" aria-label={collapsed ? "Expandir menú lateral" : "Contraer menú lateral"} aria-controls="navegacion-lateral" aria-pressed={collapsed} title={collapsed ? "Expandir menú lateral" : "Contraer menú lateral"} onClick={toggleCollapsed} className={`hidden size-9 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-surface-muted hover:text-foreground lg:inline-flex ${collapsed ? "" : "ml-auto"}`}>{collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}</button>
-      </div>
-      <nav id="navegacion-lateral" className="px-3 py-6" aria-label="Navegación principal">
-        <p className={`mb-3 px-3 text-[11px] font-bold uppercase tracking-[0.16em] text-muted ${collapsed ? "lg:hidden" : ""}`}>Principal</p>
-        {links.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href;
-          return <Link key={href} href={href} onClick={() => setMenuOpen(false)} aria-label={label} aria-current={active ? "page" : undefined} title={collapsed ? label : undefined} className={`mb-1 flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${collapsed ? "lg:justify-center lg:px-0" : ""} ${active ? "bg-accent-soft text-accent-text" : "text-muted hover:bg-surface-muted hover:text-foreground"}`}><Icon size={19} strokeWidth={active ? 2.3 : 1.9} /><span className={collapsed ? "lg:hidden" : ""}>{label}</span></Link>;
-        })}
-      </nav>
-      <div className={`absolute inset-x-5 bottom-6 rounded-xl border border-border bg-surface-muted px-4 py-3 ${collapsed ? "lg:hidden" : ""}`}><p className="text-xs font-semibold">Entorno de demostración</p><p className="mt-1 text-xs leading-5 text-muted">Los datos de este panel son ficticios.</p></div>
-    </aside>
-    <div className="min-w-0">
-      <header className="sticky top-0 z-20 flex h-20 items-center justify-between border-b border-border bg-surface/95 px-4 backdrop-blur sm:px-8">
-        <div className="flex min-w-0 items-center gap-3"><button ref={menuButtonRef} type="button" aria-label="Abrir menú" aria-controls="menu-lateral" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)} className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border text-foreground lg:hidden"><Menu size={20} /></button><div className="min-w-0"><p className="truncate text-sm font-semibold">Panel de administración</p><p className="hidden text-xs text-muted sm:block">Espacio de trabajo</p></div></div>
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3"><FullscreenToggle /><ThemeToggle /><div className="mx-1 hidden h-8 w-px bg-border sm:block" /><div className="flex items-center gap-2.5"><Avatar name={demoAdmin.name} /><div className="hidden min-[560px]:block"><p className="text-sm font-semibold leading-5">{demoAdmin.name}</p><p className="text-xs text-muted">{demoAdmin.role}</p></div></div></div>
-      </header>
-      <main className="mx-auto w-full max-w-7xl px-4 py-7 sm:px-8 sm:py-9">{children}</main>
-    </div>
+    {menuOpen && <button aria-label="Cerrar menú lateral" className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => { setMenuOpen(false); menuButton.current?.focus(); }} />}
+    <aside ref={aside} id="menu-lateral" aria-label="Menú principal" className={`fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto border-r border-border bg-surface transition-transform lg:visible lg:translate-x-0 ${collapsed ? "lg:w-20" : ""} ${menuOpen ? "visible translate-x-0" : "invisible -translate-x-full"}`}><div className="flex h-20 items-center gap-3 border-b border-border px-4"><span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-text">{collapsed && organization?.logoCompact ? <img alt="" src={organization.logoCompact} className="size-8 object-contain" /> : organization?.logoLight || organization?.logoDark ? <><img alt="" src={organization.logoLight ?? organization.logoDark} className="size-8 object-contain dark:hidden" /><img alt="" src={organization.logoDark ?? organization.logoLight} className="hidden size-8 object-contain dark:block" /></> : <LayoutDashboard size={20} />}</span>{!collapsed && <strong className="truncate">{organization?.name ?? "Panel Admin"}</strong>}<button aria-label="Cerrar menú" className="ml-auto rounded-lg p-2 lg:hidden" onClick={() => { setMenuOpen(false); menuButton.current?.focus(); }}><X size={20} /></button><button aria-label={collapsed ? "Expandir menú" : "Contraer menú"} className="ml-auto hidden rounded-lg p-2 lg:block" onClick={() => { setCollapsed(!collapsed); try { localStorage.setItem("panel-admin-sidebar-collapsed", String(!collapsed)); } catch {} }}>{collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}</button></div><nav className="space-y-1 p-3" aria-label="Navegación principal">{links.map((item) => <Link key={item.id} href={item.href} aria-current={pathname === item.href ? "page" : undefined} title={item.label} onClick={(event: React.MouseEvent<HTMLAnchorElement>) => { if (dirty && !window.confirm("Hay cambios sin guardar. ¿Descartarlos y navegar?")) event.preventDefault(); else setDirty(false); }} className={`block rounded-xl px-3 py-3 text-sm font-semibold ${pathname === item.href ? "bg-accent-soft text-accent-text" : "text-muted hover:bg-surface-muted hover:text-foreground"}`}>{collapsed ? item.label.slice(0, 2) : item.label}</Link>)}</nav><p className="mx-4 mb-4 rounded-xl bg-surface-muted p-3 text-xs text-muted">Panel Admin</p></aside>
+    <div className="min-w-0"><header className="sticky top-0 z-20 flex min-h-20 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface px-4 py-2 sm:px-8"><div className="flex min-w-0 items-center gap-3"><button ref={menuButton} aria-label="Abrir menú" aria-controls="menu-lateral" aria-expanded={menuOpen} className="rounded-xl border border-border p-2 lg:hidden" onClick={() => setMenuOpen(true)}><Menu /></button><span className="truncate text-sm font-semibold">{state.organizations.find((org) => org.id === state.organizationId)?.name}</span></div><div className="flex min-w-0 flex-wrap items-center gap-2"><label className="sr-only" htmlFor="org-switch">Empresa</label><select id="org-switch" value={state.organizationId} className="max-w-32 rounded-lg border border-border bg-surface px-2 py-2 text-sm sm:max-w-none" onChange={async (event) => { if (dirty && !window.confirm("Hay cambios sin guardar. ¿Descartarlos y cambiar de empresa?")) return; try { await switchOrganization(event.target.value); router.push("/"); } catch (error) { setLoginError(error instanceof Error ? error.message : "No se pudo cambiar de empresa."); } }}>{accessibleOrganizations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select><FullscreenToggle /><ThemeToggle />{current?.avatar ? <img alt="" src={current.avatar} className="size-9 rounded-full object-cover" /> : <Avatar name={current?.name ?? "Cuenta"} />}<button className="rounded-lg border border-border px-2 py-2 text-xs" onClick={async () => { if (dirty && !window.confirm("Hay cambios sin guardar. ¿Descartarlos y salir?")) return; await signOut(); router.push("/"); }}>Salir</button></div></header><main className="mx-auto w-full max-w-7xl px-4 py-7 sm:px-8">{pathname !== "/" && <nav aria-label="Ruta de navegación" className="mb-5 flex gap-2 text-xs text-muted"><Link href="/" className="hover:text-accent-text">Inicio</Link><span aria-hidden="true">/</span><span aria-current="page">{activeModule?.label ?? "Página"}</span></nav>}{notice && <p role="status" className="mb-4 rounded-lg bg-accent-soft p-3 text-sm text-accent-text">{notice}</p>}{denied ? <div role="alert" className="rounded-xl border border-border bg-surface p-8"><h1 className="text-xl font-bold">Acceso denegado</h1><p className="mt-2 text-muted">Este módulo no está disponible para tu rol o empresa.</p><Link href="/" className="mt-4 inline-block text-accent-text underline">Volver al inicio</Link></div> : children}</main></div>
   </div>;
 }

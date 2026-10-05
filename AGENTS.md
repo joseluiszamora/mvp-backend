@@ -1,6 +1,6 @@
 # Instrucciones para agentes
 
-Este repositorio contiene **Panel Admin**, un panel administrativo de demostración en español. Antes de modificarlo, lee [docs/project-context.md](docs/project-context.md) para conocer el alcance y la estructura actual.
+Este repositorio contiene **Panel Admin**, un panel administrativo en español con datos iniciales ficticios y persistencia SQLite. Antes de modificarlo, lee [docs/project-context.md](docs/project-context.md) para conocer el alcance y la estructura actual.
 
 ## Trabajo en el proyecto
 
@@ -10,7 +10,8 @@ Este repositorio contiene **Panel Admin**, un panel administrativo de demostraci
 - Respeta los temas claro y oscuro. Usa las variables de color definidas en `src/app/globals.css`; evita colores fijos que pierdan contraste al cambiar de tema.
 - Conserva la selección independiente de color de acento para cada tema. Si añades un color, actualiza `src/lib/appearance.ts`, las reglas de ambos temas en `src/app/globals.css` y la vista previa de Configuración.
 - Añade `"use client"` solo donde haya estado, efectos o interacción del navegador. Prefiere componentes de servidor para páginas y contenido estático.
-- La información de usuarios sigue siendo ficticia y centralizada en `src/lib/users.ts`. No presentes acciones de autenticación, edición, eliminación o persistencia como funcionales hasta que se implementen realmente.
+- Las semillas de usuarios ficticios están centralizadas en `src/lib/users.ts`. Las credenciales, sesiones y el estado de negocio viven en el servidor; valida empresa y permisos en cada nueva operación de API. No coloques contraseñas ni tokens en el estado cliente, la auditoría o el repositorio.
+- Mantén Node.js 24 o superior para `node:sqlite`. No restaures el acceso demo sin contraseña ni la persistencia de negocio en `localStorage`.
 - Si agregas una página, incorpora su enlace al menú cuando corresponda, metadatos y estados vacíos o de error pertinentes.
 - Actualiza el README y el documento de contexto si cambian los comandos, la estructura, el alcance o las decisiones del producto.
 

@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "noEmit": false,
+    "incremental": false,
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "plugins": []
+  },
+  "include": ["src/lib/demo.ts", "src/lib/demo-service.ts", "src/lib/users.ts", "tests/demo.test.ts"]
+}

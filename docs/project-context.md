@@ -1,34 +1,27 @@
 # Contexto del proyecto
 
-## Objetivo y estado actual
+## Objetivo y estado
 
-Panel Admin es una base visual y navegable para un futuro panel administrativo. Por ahora no hay autenticación, API ni base de datos. Las rutas son públicas y usan datos ficticios; cualquier ampliación debe distinguir claramente la demostración de una función real.
+Panel Admin es un panel administrativo modular en español. La fase 2 incorpora autenticación con contraseña, sesiones revocables, autorización en servidor y persistencia SQLite. Los datos iniciales de las dos empresas son ficticios. Archivos, envíos de notificaciones y garantías de integridad de auditoría pertenecen a la fase 3.
 
 ## Tecnología y estructura
 
-- Next.js 15 con App Router, React 19 y TypeScript.
-- Tailwind CSS 4 para estilos y `lucide-react` para iconos.
-- `next-themes` para respetar inicialmente la preferencia del sistema y guardar el tema elegido.
-- `src/app/page.tsx`: inicio con estadísticas y usuarios recientes.
-- `src/app/usuarios/page.tsx`: ruta de usuarios; `src/components/users-view.tsx` aplica búsqueda por nombre o correo y filtro por estado.
-- `src/app/configuracion/page.tsx`: selección independiente del color de acento de los temas claro y oscuro.
-- `src/components/app-shell.tsx`: cabecera, perfil de demostración y navegación adaptable.
-- `src/components/fullscreen-toggle.tsx`: control de pantalla completa mediante la API del navegador.
-- `src/components/ui.tsx`: componentes visuales compartidos.
-- `src/lib/users.ts`: tipo `DemoUser`, usuario mostrado en cabecera y único conjunto de datos de ejemplo.
-- `src/app/globals.css`: variables semánticas para temas claro y oscuro.
-- `src/lib/appearance.ts`: colores permitidos y claves para guardar la preferencia en el navegador.
+- Next.js 15 con App Router, React 19, TypeScript estricto, Tailwind CSS 4 y Node.js 24 o superior.
+- Rutas y API en `src/app`, componentes visuales en `src/components`, entidades, reglas y contratos en `src/lib`.
+- `src/lib/server/database.ts` abre SQLite, inicializa datos y credencial, guarda el estado versionado y administra sesiones.
+- `src/lib/server/panel.ts` valida la sesión y el origen, proyecta solo los datos autorizados y ejecuta el contrato de `src/lib/demo-service.ts` con contexto establecido por el servidor.
+- `src/components/protected-page.tsx` protege la carga de cada página de administración. La API comprueba de nuevo permisos y empresa en cada petición; ocultar un control en el cliente no concede autorización.
+- `src/components/demo-provider.tsx` es el adaptador cliente de las API. Ya no persiste el estado de negocio en el navegador.
 
-## Comportamiento que debe conservarse
+## Comportamiento
 
-- `/` calcula total, activos e inactivos desde `users` y muestra las incorporaciones más recientes.
-- `/usuarios` combina búsqueda y estado; muestra un mensaje cuando no hay resultados. Usa tabla en pantallas medianas o grandes y tarjetas en móvil.
-- El menú móvil se cierra al navegar, pulsar Escape o tocar fuera; la ruta activa queda señalada.
-- El menú de escritorio puede contraerse a iconos; esta elección se guarda en el navegador. En móvil conserva su ancho y comportamiento de panel deslizante.
-- La cabecera permite entrar y salir de pantalla completa cuando el navegador lo admite.
-- El selector de tema conserva la preferencia tras recargar y evita diferencias de hidratación.
-- Cada tema comienza con acento azul y puede elegir azul, violeta, verde, rosa o ámbar de forma independiente. Los colores elegidos se aplican al instante y se conservan en el navegador.
+- El primer arranque de una base vacía usa `PANEL_ADMIN_BOOTSTRAP_EMAIL` y `PANEL_ADMIN_BOOTSTRAP_PASSWORD` para habilitar la cuenta administradora inicial. Las demás cuentas semilla no tienen credencial hasta que un administrador la establezca.
+- El correo identifica una cuenta global; las membresías y los roles determinan sus permisos por empresa. El cambio de empresa solo admite membresías activas.
+- Las sesiones se identifican con un token aleatorio en una cookie HTTP-only. El servidor almacena su resumen, vencimiento y empresa activa. Salir revoca la sesión; cambiar una contraseña revoca todas las sesiones de esa cuenta.
+- El estado del panel se guarda como documento versionado en SQLite y las credenciales y sesiones en tablas separadas. El servicio valida lecturas y escrituras, incluidas las solicitudes enviadas directamente a la API.
+- El tema, la densidad, el idioma inicial y los acentos claro y oscuro se guardan por cuenta y empresa en SQLite. `localStorage` solo ayuda a pintar el acento antes de cargar la sesión y recuerda el menú plegado.
+- Los archivos de ejemplo todavía son metadatos y contenido público de muestra. Las notificaciones no se envían fuera de la aplicación. La auditoría persiste en el documento de estado pero aún no tiene controles de integridad o retención.
 
-## Próximas ampliaciones
+## Límites y siguiente evolución
 
-La estructura permite sustituir `src/lib/users.ts` por una fuente de datos real y añadir autenticación más adelante. Ninguna entidad, permiso ni contrato de API está definido todavía; documenta esas decisiones antes de implementarlas.
+La instalación actual usa un archivo SQLite y está pensada para una instancia de Node.js con disco persistente. El despliegue debe proporcionar HTTPS y configurar `PANEL_ADMIN_ORIGIN` con su URL pública. La fase 3 añadirá almacenamiento real de archivos, notificaciones externas y auditoría con garantías de integridad y retención; la fase 4 añadirá módulos de negocio. El estado del navegador de la fase 1 no se importa automáticamente.

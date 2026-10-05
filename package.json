@@ -2,12 +2,14 @@
   "name": "panel-admin",
   "version": "0.1.0",
   "private": true,
+  "engines": { "node": ">=24.0.0" },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/tests/demo.test.js"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

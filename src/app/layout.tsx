@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: "Inicio | Panel Admin", template: "%s | Panel Admin" },
-  description: "Panel administrativo de demostración con resumen y usuarios.",
+  description: "Panel administrativo con usuarios, roles y empresas.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
