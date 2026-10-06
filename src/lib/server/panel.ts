@@ -4,21 +4,21 @@ import { cookies } from "next/headers";
 import { DemoError, memberFor, type DemoState } from "@/lib/demo";
 import { createMockService, type MockService } from "@/lib/demo-service";
 import { scopedState } from "@/lib/scope";
-import { findSession, getDatabase, readState, sessionCookie, writeState } from "@/lib/server/database";
+import { findSession, getDatabase, lockPanel, readState, sessionCookie, writeState } from "@/lib/server/database";
 
 export type ServerSession = { userId: string; organizationId: string };
 export async function currentSession(): Promise<ServerSession | null> {
   const token = (await cookies()).get(sessionCookie)?.value;
-  const session = findSession(token);
+  const session = await findSession(token);
   if (!session) return null;
-  const state = readState();
+  const state = await readState();
   return memberFor(state, session.userId, session.organizationId)?.status === "Activo" ? session : null;
 }
 
 export { scopedState } from "@/lib/scope";
 
-export function snapshot(session: ServerSession): DemoState {
-  return scopedState(readState(), session);
+export async function snapshot(session: ServerSession): Promise<DemoState> {
+  return scopedState(await readState(), session);
 }
 
 function string(value: unknown): string { if (typeof value !== "string") throw new DemoError("VALIDATION", "Solicitud inválida."); return value; }
@@ -53,11 +53,10 @@ async function dispatch(service: MockService, session: ServerSession, method: st
 
 const reads = new Set(["listUsers", "listRoles", "listFiles", "listNotifications", "listAudit"]);
 export async function runOperation(session: ServerSession, method: string, args: unknown[]): Promise<{ result: unknown; state: DemoState }> {
-  const db = getDatabase();
-  const transaction = !reads.has(method);
-  if (transaction) db.exec("BEGIN IMMEDIATE");
-  try {
-    let state = readState(db);
+  const db = await getDatabase();
+  return db.$transaction(async (tx) => {
+    await lockPanel(tx);
+    let state = await readState(tx);
     if (memberFor(state, session.userId, session.organizationId)?.status !== "Activo") throw new DemoError("DENIED", "Sesión no autorizada.");
     state.accountId = session.userId;
     state.organizationId = session.organizationId;
@@ -65,12 +64,9 @@ export async function runOperation(session: ServerSession, method: string, args:
     state.latency = 0;
     const service = createMockService(() => state, (change) => { const next = structuredClone(state); change(next); state = next; });
     const result = await dispatch(service, session, method, args);
-    if (transaction) { writeState(state, db); db.exec("COMMIT"); }
+    if (!reads.has(method)) await writeState(state, tx);
     return { result, state: scopedState(state, session) };
-  } catch (error) {
-    if (transaction) db.exec("ROLLBACK");
-    throw error;
-  }
+  }, { maxWait: 10_000, timeout: 30_000 });
 }
 
 export function validOrigin(request: Request): boolean {

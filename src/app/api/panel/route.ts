@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const session = await currentSession();
   if (!session) return NextResponse.json({ error: "Sesión requerida." }, { status: 401 });
-  return NextResponse.json({ state: snapshot(session) }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ state: await snapshot(session) }, { headers: { "Cache-Control": "no-store" } });
 }
 export async function POST(request: Request) {
   if (!validOrigin(request)) return NextResponse.json({ error: "Origen no autorizado." }, { status: 403 });

@@ -11,15 +11,15 @@ export async function POST(request: Request) {
   const input = body as { email?: unknown; password?: unknown };
   if (typeof input?.email !== "string" || typeof input.password !== "string" || input.email.length > 254 || input.password.length > 256) return NextResponse.json({ error: "Credenciales inválidas." }, { status: 400 });
   const email = input.email.trim().toLowerCase();
-  const db = getDatabase();
-  if (loginBlocked(email, db)) return NextResponse.json({ error: "Demasiados intentos. Vuelve a intentarlo en 15 minutos." }, { status: 429 });
-  const state = readState(db);
+  const db = await getDatabase();
+  if (await loginBlocked(email, db)) return NextResponse.json({ error: "Demasiados intentos. Vuelve a intentarlo en 15 minutos." }, { status: 429 });
+  const state = await readState(db);
   const user = state.users.find((item) => item.email.toLowerCase() === email);
-  const valid = user ? verifyCredential(user.id, input.password, db) : false;
+  const valid = user ? await verifyCredential(user.id, input.password, db) : false;
   const membership = user && valid ? state.memberships.find((item) => item.userId === user.id && item.status === "Activo") : undefined;
-  if (!user || !membership) { recordLoginFailure(email, db); return NextResponse.json({ error: "Correo o contraseña incorrectos." }, { status: 401 }); }
-  clearLoginFailures(email, db);
-  const token = createSession(user.id, membership.organizationId, db);
+  if (!user || !membership) { await recordLoginFailure(email, db); return NextResponse.json({ error: "Correo o contraseña incorrectos." }, { status: 401 }); }
+  await clearLoginFailures(email, db);
+  const token = await createSession(user.id, membership.organizationId, db);
   const response = NextResponse.json({ state: scopedState(state, { userId: user.id, organizationId: membership.organizationId }) });
   response.cookies.set(sessionCookie, token, { httpOnly: true, secure: new URL(process.env.PANEL_ADMIN_ORIGIN ?? request.url).protocol === "https:", sameSite: "lax", path: "/", maxAge: sessionMaxAge });
   return response;

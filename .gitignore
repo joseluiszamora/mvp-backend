@@ -6,3 +6,5 @@ out
 !.env.example
 *.tsbuildinfo
 data/
+
+src/generated/prisma/

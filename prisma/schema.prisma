@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model PanelState {
+  id             Int @id
+  version        Int
+  organizationId String @map("organization_id")
+  @@map("panel_state")
+}
+
+model Organization {
+  id             String @id
+  name           String
+  sortOrder      Int
+  slug           String @unique
+  color          String
+  currency       String
+  timezone       String
+  logoLight      String?
+  logoDark       String?
+  logoCompact    String?
+  favicon        String?
+  enabledModules String[]
+  branches       Branch[]
+  roles          Role[]
+  memberships    Membership[]
+  files          FileRecord[]
+  notifications  Notification[]
+  audit          AuditEvent[]
+  @@map("organizations")
+}
+
+model Branch {
+  id             String @id
+  organizationId String
+  name           String
+  address        String
+  status         String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@index([organizationId])
+  @@map("branches")
+}
+
+model User {
+  id            String @id
+  name          String
+  email         String @unique
+  avatar        String?
+  createdAt     String
+  memberships   Membership[]
+  credential    Credential?
+  files         FileRecord[]
+  notifications Notification[]
+  audit         AuditEvent[]
+  @@map("users")
+}
+
+model Role {
+  id             String @id
+  organizationId String
+  name           String
+  permissions    String[]
+  protected      Boolean
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberships    Membership[]
+  @@unique([id, organizationId])
+  @@unique([organizationId, name])
+  @@map("roles")
+}
+
+model Membership {
+  id             String @id
+  organizationId String
+  userId         String
+  roleId         String
+  status         String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role @relation(fields: [roleId, organizationId], references: [id, organizationId])
+  preference     Preference?
+  sessions       Session[]
+  @@unique([userId, organizationId])
+  @@index([roleId, organizationId])
+  @@map("memberships")
+}
+
+model Preference {
+  userId         String
+  organizationId String
+  payload        Json
+  membership     Membership @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  @@id([userId, organizationId])
+  @@map("preferences")
+}
+
+model FileRecord {
+  id              String @id
+  organizationId  String
+  name            String
+  mimeType        String
+  size            Int
+  ownerId         String
+  createdAt       String
+  sampleAssetPath String?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner           User @relation(fields: [ownerId], references: [id])
+  @@index([organizationId])
+  @@map("files")
+}
+
+model Notification {
+  id             String @id
+  organizationId String
+  userId         String
+  title          String
+  message        String
+  category       String
+  readAt         String?
+  createdAt      String
+  targetRoute    String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([organizationId, userId])
+  @@map("notifications")
+}
+
+model AuditEvent {
+  id             String @id
+  organizationId String
+  actorId        String
+  module         String
+  action         String
+  entityId       String
+  before         Json
+  after          Json
+  createdAt      String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User @relation(fields: [actorId], references: [id])
+  @@index([organizationId, createdAt])
+  @@map("audit_events")
+}
+
+model Credential {
+  userId       String @id @map("user_id")
+  salt         String
+  passwordHash String @map("password_hash")
+  changedAt    BigInt @map("changed_at")
+  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("credentials")
+}
+
+model Session {
+  tokenHash      String @id @map("token_hash")
+  userId         String @map("user_id")
+  organizationId String @map("organization_id")
+  expiresAt      BigInt @map("expires_at")
+  createdAt      BigInt @map("created_at")
+  membership     Membership @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model LoginAttempt {
+  email        String @id
+  failures     Int
+  blockedUntil BigInt @map("blocked_until")
+  @@map("login_attempts")
+}
