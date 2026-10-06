@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useDemo } from "@/components/demo-provider";
 import { Card, PageHeading } from "@/components/ui";
 import { type FileRecord, permissionFor } from "@/lib/demo";
@@ -10,6 +11,7 @@ export function FilesSection() {
   const { state, service } = useDemo();
   const [records, setRecords] = useState<FileRecord[]>([]);
   const [query, setQuery] = useState("");
+  const search = useDebouncedValue(query);
   const [fileType, setFileType] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -17,7 +19,7 @@ export function FilesSection() {
   const org = state.organizationId;
   const canManage = permissionFor(state, "files.manage");
   const types = [...new Set(state.files.filter((item) => item.organizationId === org).map((item) => item.mimeType))];
-  useEffect(() => { let active = true; setLoading(true); service.listFiles(org, { search: query, mimeType: fileType || undefined, pageSize: 100 }).then((result) => { if (active) { setRecords(result.items); setError(""); } }).catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : "No se pudieron cargar los archivos."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [service, org, query, fileType, state.files, state.scenario]);
+  useEffect(() => { let active = true; setLoading(true); service.listFiles(org, { search, mimeType: fileType || undefined, pageSize: 100 }).then((result) => { if (active) { setRecords(result.items); setError(""); } }).catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : "No se pudieron cargar los archivos."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [service, org, search, fileType, state.files, state.scenario]);
   async function add(file?: File) { if (!file) return; try { await service.addFile(org, { name: file.name, mimeType: file.type || "application/octet-stream", size: file.size }); setMessage("Se guardaron los metadatos. El contenido no se subió ni se conservó."); } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo registrar el archivo."); } }
   async function rename(record: FileRecord) { const name = window.prompt("Nuevo nombre", record.name); if (!name) return; try { await service.renameFile(org, record.id, name); setMessage("Archivo renombrado."); } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo renombrar."); } }
   async function remove(record: FileRecord) { if (!window.confirm(`¿Eliminar ${record.name}?`)) return; try { await service.deleteFile(org, record.id); setMessage("Registro eliminado."); } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo eliminar."); } }

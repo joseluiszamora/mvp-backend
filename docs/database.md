@@ -2,10 +2,13 @@
 
 ## Conexión y migración
 
-La aplicación utiliza Prisma ORM 7 y su adaptador `pg` con PostgreSQL. El motor se ha seleccionado como opción inicial; un cambio a MySQL o SQL Server requiere adaptar proveedor, adaptador y migración. Configura `DATABASE_URL` en `.env` tanto para Next.js como para los comandos de Prisma. No publiques credenciales.
+La aplicación usa el proyecto Supabase `axafopilboigjqirodpa` como PostgreSQL externo, con Prisma ORM 7 y el adaptador `pg`. `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` son configuración pública del cliente; Prisma no puede usar la clave publicable como conexión PostgreSQL. Prisma usa `DATABASE_URL` (pooler transaccional, puerto 6543) en ejecución y `DIRECT_URL` (pooler de sesión, puerto 5432) para Prisma Migrate. Ambas conexiones requieren TLS. Con `sslmode=require` el tráfico se cifra, pero el certificado del servidor no se valida; para validar también el certificado, descarga la CA de Supabase y configura `sslmode=verify-full` y `sslrootcert`. `uselibpqcompat=true` mantiene en el driver `pg` la semántica de `require` de PostgreSQL. Ambas URI incluyen la contraseña y se guardan solo en `.env`; rótala si se comparte fuera del entorno local. El SQL de Prisma también está en `supabase/migrations/` para el flujo Supabase CLI. La migración `20261006000000_external_database` ya quedó aplicada al proyecto y verificada: existen las 13 tablas, todas tienen RLS activado y los roles `anon` y `authenticated` no pueden leer credenciales.
 
 ```dotenv
-DATABASE_URL="postgresql://USUARIO:CONTRASENA@HOST:5432/BASE?sslmode=require"
+NEXT_PUBLIC_SUPABASE_URL="https://axafopilboigjqirodpa.supabase.co"
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_REEMPLAZAR"
+DATABASE_URL="postgresql://postgres.PROJECT_REF:CONTRASENA@POOLER_HOST:6543/postgres?pgbouncer=true&sslmode=require&uselibpqcompat=true"
+DIRECT_URL="postgresql://postgres.PROJECT_REF:CONTRASENA@POOLER_HOST:5432/postgres?sslmode=require&uselibpqcompat=true"
 PANEL_ADMIN_BOOTSTRAP_EMAIL="admin@example.com"
 PANEL_ADMIN_BOOTSTRAP_PASSWORD="REEMPLAZAR_CON_UNA_CONTRASENA_SEGURA"
 PANEL_ADMIN_ORIGIN="http://localhost:3000"
@@ -13,16 +16,27 @@ PANEL_ADMIN_ORIGIN="http://localhost:3000"
 
 La contraseña y el usuario de la URL deben estar codificados como componentes URI cuando contengan caracteres especiales. Configura TLS según el proveedor; no desactives la validación del certificado. No se incluyen credenciales reales en el repositorio.
 
+La URL, clave publicable y URI PostgreSQL del proyecto están guardadas en el `.env` local, ignorado por Git. `DATABASE_URL` usa el pooler transaccional; `DIRECT_URL` usa el pooler de sesión para migraciones.
+
+Para aplicar desde la raíz del repositorio con Prisma:
+
+```bash
+npm run db:migrate
+```
+
+También puedes pegar `supabase/migrations/20261006000000_external_database.sql` en el SQL Editor del proyecto, o usar Supabase CLI autenticado (`supabase link --project-ref axafopilboigjqirodpa` seguido de `supabase db push`). Escoge un solo método para aplicar la migración.
+
 Requiere Node.js 24 o superior:
 
 ```bash
 npm ci
 npm run db:validate
 npm run db:migrate
+npm run db:seed
 npm run dev
 ```
 
-`npm ci` genera el cliente Prisma mediante `postinstall`. `db:migrate` aplica migraciones pendientes y registra su historial; ejecuta este comando antes de desplegar. La aplicación no crea tablas al arrancar. Una base vacía se inicializa una sola vez con las entidades ficticias y la credencial configurada mediante las variables de arranque. Un bloqueo transaccional de PostgreSQL evita inicializaciones simultáneas.
+`npm ci` genera el cliente Prisma mediante `postinstall`. `db:migrate` aplica migraciones pendientes y registra su historial; ejecuta este comando antes de desplegar. El comando `npm run db:seed` inserta una sola vez las empresas, sucursales, usuarios, membresías, roles, archivos y notificaciones de muestra, eventos de auditoría y la credencial administradora de bootstrap. El seed está protegido por una transacción y un bloqueo compartido; volverlo a ejecutar en una base ya inicializada no reemplaza registros. Requiere `PANEL_ADMIN_BOOTSTRAP_EMAIL` y `PANEL_ADMIN_BOOTSTRAP_PASSWORD` en `.env`. El arranque de la aplicación conserva también su inicialización automática si falta el marcador de estado. Cambiar después las variables de bootstrap no modifica la cuenta ya guardada; en ese caso ejecuta `npm run db:bootstrap`, que sincroniza correo y contraseña solo para el administrador inicial de Andes, rechaza correos duplicados y revoca sus sesiones anteriores.
 
 El SQL de creación de tablas, índices y claves foráneas está en [migration.sql](../prisma/migrations/20261006000000_external_database/migration.sql). Está generado desde [schema.prisma](../prisma/schema.prisma). Para nuevas modificaciones usa `npm run db:migrate:dev -- --name descripcion` en una base de desarrollo; usa `db:migrate` en producción. No ejecutes simultáneamente el SQL manual y Prisma Migrate. Si un DBA aplica el SQL manualmente, registra después la migración con `npx prisma migrate resolve --applied 20261006000000_external_database`.
 
@@ -154,10 +168,14 @@ erDiagram
 
 Las fechas de las entidades conservan las cadenas ISO del contrato actual. Los tiempos de autenticación son `BIGINT` en milisegundos Unix. Los identificadores conservan los IDs de semillas y UUID generados por el servicio. Las FK de propietarios y actores restringen su eliminación; eliminar usuarios o membresías revoca sus sesiones por cascada. `entityId` de auditoría es una referencia polimórfica, sin FK. El campo `panel_state.organization_id` es metadato del contrato, sin FK.
 
+Las tablas se crean con RLS activado y sin políticas Data API; además, la migración revoca `PUBLIC`, `anon`, `authenticated` y `service_role`. Las credenciales y sesiones solo son accesibles con la conexión directa de servidor de Prisma. No conectes el navegador a estas tablas con la clave publicable: los permisos de la aplicación se comprueban en sus rutas de servidor.
+
 Las API siguen validando sesión, membresía activa y permisos en el servidor. Las FK de archivos y notificaciones garantizan la existencia de cuenta y empresa; el servicio valida su ámbito. Los estados, categorías y permisos se validan en la capa de dominio.
 
 ## Transacciones y operación
 
-Las lecturas del estado y las operaciones de negocio usan transacciones con `pg_advisory_xact_lock(721831)`. El bloqueo es compartido por todas las instancias conectadas a la misma base y evita pérdidas de actualizaciones durante el ciclo lectura/modificación/escritura. La escritura normaliza el contrato en las tablas, guarda preferencias como JSONB y sincroniza eliminaciones. Cambiar una contraseña y revocar sesiones es atómico; los incrementos de intentos fallidos también lo son.
+Las escrituras de negocio usan transacciones con `pg_advisory_xact_lock(721831)`; las lecturas del estado usan una única sentencia SQL con agregaciones JSON, coherente por la instantánea MVCC de PostgreSQL, sin adquirir ese bloqueo. El bloqueo es compartido por todas las instancias conectadas a la misma base y evita pérdidas de actualizaciones durante el ciclo lectura/modificación/escritura. La escritura compara el estado anterior y posterior, actualiza solo registros modificados, guarda preferencias como JSONB mediante upsert y sincroniza eliminaciones cuando existen. Cambiar una contraseña y revocar sesiones es atómico; los incrementos de intentos fallidos también lo son.
 
-Esta primera integración sigue cargando el estado completo y sincronizando sus entidades. El bloqueo global prioriza consistencia y serializa operaciones del panel. Para volúmenes altos conviene evolucionar a consultas y actualizaciones por entidad, paginación SQL y bloqueos más específicos. La auditoría aún no implementa inmutabilidad ni retención; los archivos y envíos siguen siendo de muestra.
+La carga inicial filtra cuenta, empresa y permisos en SQL; la auditoría inicial se limita a los 500 eventos más recientes. Las API de listas consultan únicamente su entidad, con filtros y paginación SQL (máximo 500 registros por página), sin incluir una copia del estado. Usuarios se ordena con la colación española `es-x-icu`, disponible en este proyecto Supabase; otros PostgreSQL deben disponer de esa colación ICU. Una única consulta con JOIN valida vigencia de sesión, membresía activa, permisos y módulos; React solo la reutiliza dentro del render actual. El guardado de preferencias consulta únicamente la membresía y preferencia propias; un CTE escribe preferencia y auditoría juntas. Las demás mutaciones aún cargan el contrato completo, en una sola sentencia, y persisten diferencias bajo el bloqueo global. Para volúmenes altos conviene completar la migración de esas mutaciones a operaciones por entidad y bloqueos más específicos. La auditoría aún no implementa inmutabilidad ni retención; los archivos y envíos siguen siendo de muestra.
+
+El navegador reutiliza las listas de la carga inicial durante un máximo de 15 segundos y deduplica lecturas por cuenta, empresa, método y filtros (máximo 128 entradas en memoria). Al caducar, la siguiente consulta vuelve al servidor. Refrescar, salir, cambiar de empresa y modificar datos invalidan las entradas pertinentes; los cambios de preferencias actualizan solo las preferencias y la auditoría autorizada. No hay caché compartida de permisos entre peticiones ni persistencia de datos de negocio en localStorage.

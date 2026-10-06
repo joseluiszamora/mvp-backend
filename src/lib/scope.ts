@@ -16,7 +16,7 @@ export function scopedState(state: DemoState, session: ScopeSession): DemoState 
   scoped.roles = state.roles.filter((item) => item.organizationId === session.organizationId);
   scoped.files = permissionFor(scoped, "files.read") ? state.files.filter((item) => item.organizationId === session.organizationId) : [];
   scoped.notifications = state.notifications.filter((item) => item.organizationId === session.organizationId && item.userId === session.userId);
-  scoped.audit = permissionFor(scoped, "audit.read") ? state.audit.filter((item) => item.organizationId === session.organizationId) : [];
+  scoped.audit = permissionFor(scoped, "audit.read") ? state.audit.filter((item) => item.organizationId === session.organizationId).slice(0, 500) : [];
   scoped.preferences = Object.fromEntries(Object.entries(state.preferences).filter(([key]) => key === `${session.userId}:${session.organizationId}`));
   return scoped;
 }

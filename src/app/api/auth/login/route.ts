@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { clearLoginFailures, createSession, getDatabase, loginBlocked, readState, recordLoginFailure, sessionCookie, sessionMaxAge, verifyCredential } from "@/lib/server/database";
-import { scopedState, validOrigin } from "@/lib/server/panel";
+import { clearLoginFailures, createSession, getDatabase, loginBlocked, recordLoginFailure, sessionCookie, sessionMaxAge, verifyCredential } from "@/lib/server/database";
+import { snapshot, validOrigin } from "@/lib/server/panel";
 
 export const runtime = "nodejs";
 export async function POST(request: Request) {
@@ -13,14 +13,13 @@ export async function POST(request: Request) {
   const email = input.email.trim().toLowerCase();
   const db = await getDatabase();
   if (await loginBlocked(email, db)) return NextResponse.json({ error: "Demasiados intentos. Vuelve a intentarlo en 15 minutos." }, { status: 429 });
-  const state = await readState(db);
-  const user = state.users.find((item) => item.email.toLowerCase() === email);
+  const user = await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, select: { id: true } });
   const valid = user ? await verifyCredential(user.id, input.password, db) : false;
-  const membership = user && valid ? state.memberships.find((item) => item.userId === user.id && item.status === "Activo") : undefined;
+  const membership = user && valid ? await db.membership.findFirst({ where: { userId: user.id, status: "Activo" }, orderBy: { id: "asc" }, select: { organizationId: true } }) : undefined;
   if (!user || !membership) { await recordLoginFailure(email, db); return NextResponse.json({ error: "Correo o contraseña incorrectos." }, { status: 401 }); }
   await clearLoginFailures(email, db);
   const token = await createSession(user.id, membership.organizationId, db);
-  const response = NextResponse.json({ state: scopedState(state, { userId: user.id, organizationId: membership.organizationId }) });
+  const response = NextResponse.json({ state: await snapshot({ userId: user.id, organizationId: membership.organizationId }) });
   response.cookies.set(sessionCookie, token, { httpOnly: true, secure: new URL(process.env.PANEL_ADMIN_ORIGIN ?? request.url).protocol === "https:", sameSite: "lax", path: "/", maxAge: sessionMaxAge });
   return response;
 }

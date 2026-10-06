@@ -1,24 +1,32 @@
 import "server-only";
 
+import { isAllowedOrigin } from "@/lib/request-origin";
+import { cache } from "react";
+import { writePreferences } from "@/lib/server/preferences";
+import { readMethods, runReadOperation } from "@/lib/server/panel-reads";
 import { cookies } from "next/headers";
-import { DemoError, memberFor, type DemoState } from "@/lib/demo";
+import { DemoError, memberFor, modules, type ModuleId, type AuditEvent, type DemoState } from "@/lib/demo";
 import { createMockService, type MockService } from "@/lib/demo-service";
 import { scopedState } from "@/lib/scope";
-import { findSession, getDatabase, lockPanel, readState, sessionCookie, writeState } from "@/lib/server/database";
+import { findSession, getDatabase, lockPanel, readState, sessionCookie, writeState, type AuthorizedSession } from "@/lib/server/database";
 
-export type ServerSession = { userId: string; organizationId: string };
-export async function currentSession(): Promise<ServerSession | null> {
+export type ServerSession = AuthorizedSession;
+// cache() solo comparte dentro del render/petición, nunca entre usuarios o peticiones.
+export const currentSession = cache(async (): Promise<ServerSession | null> => {
   const token = (await cookies()).get(sessionCookie)?.value;
-  const session = await findSession(token);
-  if (!session) return null;
-  const state = await readState();
-  return memberFor(state, session.userId, session.organizationId)?.status === "Activo" ? session : null;
+  return findSession(token);
+});
+
+export async function canAccessModule(session: ServerSession, module: ModuleId): Promise<boolean> {
+  const entry = modules.find((item) => item.id === module);
+  return !!entry && session.enabledModules.includes(module)
+    && (!entry.permission || session.permissions.includes(entry.permission));
 }
 
 export { scopedState } from "@/lib/scope";
 
-export async function snapshot(session: ServerSession): Promise<DemoState> {
-  return scopedState(await readState(), session);
+export async function snapshot(session: Pick<ServerSession, "userId" | "organizationId">): Promise<DemoState> {
+  return readState(undefined, session);
 }
 
 function string(value: unknown): string { if (typeof value !== "string") throw new DemoError("VALIDATION", "Solicitud inválida."); return value; }
@@ -29,48 +37,55 @@ function org(session: ServerSession, value: unknown): string { const id = string
 async function dispatch(service: MockService, session: ServerSession, method: string, args: unknown[]): Promise<unknown> {
   const a = args;
   switch (method) {
-    case "listUsers": return service.listUsers({ ...object(a[0]), organizationId: org(session, object(a[0]).organizationId) } as Parameters<MockService["listUsers"]>[0]);
     case "saveUser": return service.saveUser({ ...object(a[0]), organizationId: org(session, object(a[0]).organizationId) } as Parameters<MockService["saveUser"]>[0]);
     case "changeUserStatus": return service.changeUserStatus(org(session, a[0]), strings(a[1]));
-    case "listRoles": return service.listRoles(org(session, a[0]));
     case "createRole": return service.createRole(org(session, a[0]), string(a[1]));
     case "setRolePermission": return service.setRolePermission(org(session, a[0]), string(a[1]), string(a[2]) as Parameters<MockService["setRolePermission"]>[2], Boolean(a[3]));
-    case "listFiles": return service.listFiles(org(session, a[0]), object(a[1] ?? {}) as Parameters<MockService["listFiles"]>[1]);
     case "addFile": return service.addFile(org(session, a[0]), object(a[1]) as Parameters<MockService["addFile"]>[1]);
     case "renameFile": return service.renameFile(org(session, a[0]), string(a[1]), string(a[2]));
     case "deleteFile": return service.deleteFile(org(session, a[0]), string(a[1]));
-    case "listNotifications": return service.listNotifications(org(session, a[0]));
     case "markNotifications": return service.markNotifications(org(session, a[0]), strings(a[1]));
-    case "listAudit": return service.listAudit(org(session, a[0]), object(a[1] ?? {}) as Parameters<MockService["listAudit"]>[1]);
     case "updateOrganization": return service.updateOrganization(org(session, a[0]), object(a[1]) as Parameters<MockService["updateOrganization"]>[1]);
     case "addBranch": return service.addBranch(org(session, a[0]), string(a[1]));
     case "updateBranch": return service.updateBranch(org(session, a[0]), string(a[1]), object(a[2]) as Parameters<MockService["updateBranch"]>[2]);
-    case "updatePreferences": return service.updatePreferences(org(session, a[0]), object(a[1]) as Parameters<MockService["updatePreferences"]>[1]);
     case "updateProfile": return service.updateProfile(object(a[0]) as Parameters<MockService["updateProfile"]>[0]);
     default: throw new DemoError("NOT_FOUND", "Operación desconocida.");
   }
 }
 
-const reads = new Set(["listUsers", "listRoles", "listFiles", "listNotifications", "listAudit"]);
-export async function runOperation(session: ServerSession, method: string, args: unknown[]): Promise<{ result: unknown; state: DemoState }> {
+type OperationResponse = { result: unknown; state?: DemoState; patch?: Partial<DemoState>; auditEvent?: AuditEvent };
+
+async function savePreferences(session: ServerSession, args: unknown[]): Promise<OperationResponse> {
+  const organizationId = org(session, args[0]);
+  const changes = object(args[1]);
   const db = await getDatabase();
   return db.$transaction(async (tx) => {
+    // Conserva la coordinación con las operaciones que aún escriben mediante el contrato de estado.
     await lockPanel(tx);
-    let state = await readState(tx);
-    if (memberFor(state, session.userId, session.organizationId)?.status !== "Activo") throw new DemoError("DENIED", "Sesión no autorizada.");
+    const { preference: payload, event } = await writePreferences(tx, session, changes);
+    const key = `${session.userId}:${organizationId}`;
+    return { result: null, patch: { preferences: { [key]: payload } }, ...(session.permissions.includes("audit.read") ? { auditEvent: event } : {}) };
+  }, { maxWait: 10_000, timeout: 30_000 });
+}
+
+export async function runOperation(session: ServerSession, method: string, args: unknown[]): Promise<OperationResponse> {
+  const db = await getDatabase();
+  if (readMethods.has(method)) return { result: await runReadOperation(db, session, method, args) };
+  if (method === "updatePreferences") return savePreferences(session, args);
+  return db.$transaction(async (tx) => {
+    await lockPanel(tx);
+    const previous = await readState(tx);
+    if (memberFor(previous, session.userId, session.organizationId)?.status !== "Activo") throw new DemoError("DENIED", "Sesión no autorizada.");
+    let state = structuredClone(previous);
     state.accountId = session.userId;
     state.organizationId = session.organizationId;
-    state.scenario = "normal";
-    state.latency = 0;
     const service = createMockService(() => state, (change) => { const next = structuredClone(state); change(next); state = next; });
     const result = await dispatch(service, session, method, args);
-    if (!reads.has(method)) await writeState(state, tx);
+    await writeState(state, tx, previous);
     return { result, state: scopedState(state, session) };
   }, { maxWait: 10_000, timeout: 30_000 });
 }
 
 export function validOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  const allowed = process.env.PANEL_ADMIN_ORIGIN ?? new URL(request.url).origin;
-  return origin === allowed;
+  return isAllowedOrigin(request, process.env.PANEL_ADMIN_ORIGIN);
 }

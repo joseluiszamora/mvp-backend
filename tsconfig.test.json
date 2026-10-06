@@ -10,5 +10,5 @@
     "rootDir": ".",
     "plugins": []
   },
-  "include": ["src/lib/demo.ts", "src/lib/demo-service.ts", "src/lib/users.ts", "tests/demo.test.ts"]
+  "include": ["src/lib/demo.ts", "src/lib/demo-service.ts", "src/lib/users.ts", "src/lib/panel-client.ts", "tests/*.test.ts"]
 }

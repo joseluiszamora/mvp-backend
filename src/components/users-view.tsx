@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useDemo } from "@/components/demo-provider";
 import { AccountAccess } from "@/components/account-access";
 import { Modal } from "@/components/modal";
@@ -11,10 +12,11 @@ const field = "w-full rounded-lg border border-border bg-surface px-3 py-2 text-
 export function UsersView() {
   const { state, service, refresh, dirty, setDirty } = useDemo(); const org = state.organizationId;
   const [query, setQuery] = useState(""); const [role, setRole] = useState(""); const [status, setStatus] = useState(""); const [sort, setSort] = useState<"asc" | "desc">("asc"); const [page, setPage] = useState(1); const [selected, setSelected] = useState<string[]>([]); const [editing, setEditing] = useState<MemberUser | null>(null); const [creating, setCreating] = useState(false); const [error, setError] = useState("");
+  const search = useDebouncedValue(query);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PageResult<MemberUser> | null>(null);
   useEffect(() => { setSelected([]); setPage(1); setEditing(null); setCreating(false); setDirty(false); }, [org, setDirty]);
-  useEffect(() => { let active = true; setLoading(true); service.listUsers({ organizationId: org, search: query, roleId: role || undefined, status: status as MemberUser["status"] || undefined, sort, page, pageSize: 8 }).then((value) => { if (active) { setResult(value); setError(""); } }).catch((cause) => { if (active) { setResult(null); setError(cause instanceof Error ? cause.message : "No se pudieron cargar los usuarios."); } }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [service, org, query, role, status, sort, page, state.scenario, state.latency, state.users, state.memberships]);
+  useEffect(() => { let active = true; setLoading(true); service.listUsers({ organizationId: org, search, roleId: role || undefined, status: status as MemberUser["status"] || undefined, sort, page, pageSize: 8 }).then((value) => { if (active) { setResult(value); setError(""); } }).catch((cause) => { if (active) { setResult(null); setError(cause instanceof Error ? cause.message : "No se pudieron cargar los usuarios."); } }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [service, org, search, role, status, sort, page, state.scenario, state.latency, state.users, state.memberships]);
   const roles = state.roles.filter((item) => item.organizationId === org);
   const filtered = useMemo(() => membersForOrganization(state, org).filter((item) => (item.name + item.email).toLocaleLowerCase("es").includes(query.toLocaleLowerCase("es")) && (!role || item.roleId === role) && (!status || item.status === status)).sort((a, b) => sort === "asc" ? a.name.localeCompare(b.name, "es") : b.name.localeCompare(a.name, "es")), [state, org, query, role, status, sort]);
   const shown = result?.items ?? []; const compact = state.preferences[`${state.accountId}:${org}`]?.density === "Compacta"; const columns = state.preferences[`${state.accountId}:${org}`]?.tableColumns ?? ["role", "status", "date"]; const canCreate = permissionFor(state, "users.create"); const canUpdate = permissionFor(state, "users.update"); const canDeactivate = permissionFor(state, "users.deactivate"); const canExport = permissionFor(state, "users.export");

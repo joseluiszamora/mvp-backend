@@ -4,17 +4,21 @@ Panel administrativo en español con Next.js 15, TypeScript, Tailwind y PostgreS
 
 ## Ejecutar
 
-Requiere Node.js 24 o superior y npm. Configura `DATABASE_URL`, el correo y una contraseña inicial de al menos 12 caracteres en `.env`, siguiendo [la documentación de base de datos](docs/database.md). No incluyas `.env` en Git.
+Requiere Node.js 24 o superior y npm. Las variables públicas de Supabase están en `.env`. Configura también `DATABASE_URL` con la URI PostgreSQL del proyecto y el correo y contraseña iniciales, siguiendo [la documentación de base de datos](docs/database.md). No incluyas `.env` en Git.
 
 ```bash
 npm ci
 npm run db:migrate
+npm run db:seed
+npm run db:bootstrap
 npm run dev
 ```
 
-Abre [http://localhost:3000](http://localhost:3000) e inicia sesión con las credenciales configuradas. La cuenta inicial tiene rol Administrador en Andes Demo y Altiplano Demo. La conexión usa `DATABASE_URL` y requiere aplicar las migraciones de Prisma antes del arranque. Las variables de arranque solo crean la primera credencial en una base sin credenciales. Para cambiarla después, usa Perfil → Cambiar contraseña.
+Abre [http://localhost:3000](http://localhost:3000) e inicia sesión con las credenciales configuradas. La cuenta inicial tiene rol Administrador en Andes Demo y Altiplano Demo. La conexión Prisma usa `DATABASE_URL` y requiere aplicar las migraciones antes del arranque. Las variables de bootstrap crean la credencial inicial; si las cambias después, ejecuta `npm run db:bootstrap` para sincronizar al administrador inicial. Para cambiar la contraseña desde la aplicación, usa Perfil → Cambiar contraseña.
 
-Verifica con `npm run lint`, `npm run typecheck`, `npm run test` y `npm run build`.
+Verifica con `npm run lint`, `npm run typecheck`, `npm run test` y `npm run build`. Las pruebas cubren reglas de dominio, aislamiento de empresas, caché de lecturas y guardados concurrentes de preferencias.
+
+Para evaluar tiempos reales de navegación usa `npm run build` y luego `npm start`. `npm run dev` compila rutas a demanda y puede añadir varios segundos al primer acceso.
 
 ## Cuentas y sesiones
 
@@ -27,8 +31,9 @@ La sesión usa una cookie HTTP-only, SameSite=Lax y un token aleatorio cuyo resu
 - Usuarios, membresías, roles, permisos, empresas y preferencias se leen y escriben en el servidor. Cada petición valida la sesión, la empresa y el permiso correspondiente.
 - Las dos empresas y los datos semilla se crean una sola vez. El administrador inicial tiene membresías independientes en ambas.
 - Archivos, notificaciones y auditoría siguen usando registros de muestra. La selección de archivos guarda solo metadatos; no sube contenido. Los envíos y el almacenamiento de archivos reales corresponden a la fase 3.
-- Prisma guarda las entidades en tablas relacionadas de PostgreSQL. Las transacciones y un bloqueo compartido entre instancias protegen las actualizaciones concurrentes. Consulta [el diagrama, tablas y migración SQL](docs/database.md).
-- Las preferencias de apariencia se guardan por cuenta y empresa, con acentos independientes para los modos claro y oscuro. `localStorage` conserva solo la preferencia visual previa al inicio y el estado del menú lateral; ya no contiene el estado de negocio.
+- Prisma guarda las entidades en tablas relacionadas de PostgreSQL. Las transacciones y un bloqueo compartido entre instancias protegen las actualizaciones concurrentes. Solo se escriben registros modificados. La carga inicial obtiene una instantánea autorizada en una sola consulta; las listas tienen filtros y paginación SQL. Una consulta comprueba sesión, empresa, rol y módulos. Consulta [el diagrama, tablas y migración SQL](docs/database.md).
+- El cliente deduplica y reutiliza lecturas en memoria hasta 15 segundos, sin volver a pedir las listas recién cargadas. Las búsquedas agrupan pulsaciones y la navegación precarga las rutas visibles. Los cambios de cuenta, empresa y datos invalidan la caché correspondiente.
+- Las preferencias de apariencia se aplican al instante y se guardan en segundo plano por cuenta y empresa, con acentos independientes para los modos claro y oscuro. `localStorage` conserva solo la preferencia visual previa al inicio y el estado del menú lateral; ya no contiene el estado de negocio.
 - El estado local de la antigua fase 1 y las bases SQLite existentes no se importan automáticamente a PostgreSQL.
 
 ## Estructura
@@ -37,7 +42,8 @@ La sesión usa una cookie HTTP-only, SameSite=Lax y un token aleatorio cuyo resu
 - `src/components`: vistas, controles y protección de páginas.
 - `src/lib/demo.ts`: entidades, registro de módulos, datos iniciales y reglas de permisos.
 - `src/lib/demo-service.ts`: reglas de dominio y contrato asíncrono, ejecutados por el servidor.
-- `src/lib/server`: Prisma, sesiones, proyección de datos por empresa y despacho autorizado.
+- `src/lib/server`: Prisma, sesiones, lectura autorizada por empresa, consultas paginadas y escritura atómica de preferencias.
+- `src/lib/panel-client.ts`: caché en memoria, conservación de referencias y cola de preferencias.
 - `prisma/schema.prisma`: entidades y relaciones; `prisma/migrations`: SQL versionado.
 - `prisma.config.ts`: configuración de conexión y migraciones.
 - `src/lib/appearance.ts` y `src/app/globals.css`: paleta y tokens de temas.
