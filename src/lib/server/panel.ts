@@ -9,6 +9,8 @@ import { DemoError, memberFor, modules, type ModuleId, type AuditEvent, type Dem
 import { createMockService, type MockService } from "@/lib/demo-service";
 import { scopedState } from "@/lib/scope";
 import { findSession, getDatabase, lockPanel, readState, sessionCookie, writeState, type AuthorizedSession } from "@/lib/server/database";
+import type { FileRecord } from "@/lib/demo";
+import { emailConfigured, prepareNotifications, queueEmails } from "@/lib/server/notification-delivery";
 
 export type ServerSession = AuthorizedSession;
 // cache() solo comparte dentro del render/petición, nunca entre usuarios o peticiones.
@@ -41,7 +43,6 @@ async function dispatch(service: MockService, session: ServerSession, method: st
     case "changeUserStatus": return service.changeUserStatus(org(session, a[0]), strings(a[1]));
     case "createRole": return service.createRole(org(session, a[0]), string(a[1]));
     case "setRolePermission": return service.setRolePermission(org(session, a[0]), string(a[1]), string(a[2]) as Parameters<MockService["setRolePermission"]>[2], Boolean(a[3]));
-    case "addFile": return service.addFile(org(session, a[0]), object(a[1]) as Parameters<MockService["addFile"]>[1]);
     case "renameFile": return service.renameFile(org(session, a[0]), string(a[1]), string(a[2]));
     case "deleteFile": return service.deleteFile(org(session, a[0]), string(a[1]));
     case "markNotifications": return service.markNotifications(org(session, a[0]), strings(a[1]));
@@ -58,6 +59,10 @@ type OperationResponse = { result: unknown; state?: DemoState; patch?: Partial<D
 async function savePreferences(session: ServerSession, args: unknown[]): Promise<OperationResponse> {
   const organizationId = org(session, args[0]);
   const changes = object(args[1]);
+  const channels = changes.notificationChannels;
+  if (channels && typeof channels === "object" && !Array.isArray(channels) && (channels as { correo?: unknown }).correo === true && !emailConfigured()) {
+    throw new DemoError("VALIDATION", "El envío por correo no está configurado.");
+  }
   const db = await getDatabase();
   return db.$transaction(async (tx) => {
     // Conserva la coordinación con las operaciones que aún escriben mediante el contrato de estado.
@@ -81,8 +86,37 @@ export async function runOperation(session: ServerSession, method: string, args:
     state.organizationId = session.organizationId;
     const service = createMockService(() => state, (change) => { const next = structuredClone(state); change(next); state = next; });
     const result = await dispatch(service, session, method, args);
+    const newEvents = state.audit.filter((event) => !previous.audit.some((old) => old.id === event.id));
+    const emails = prepareNotifications(state, newEvents);
     await writeState(state, tx, previous);
+    await queueEmails(tx, emails);
     return { result, state: scopedState(state, session) };
+  }, { maxWait: 10_000, timeout: 30_000 });
+}
+
+export async function uploadFile(session: ServerSession, input: { name: string; mimeType: string; bytes: Uint8Array; checksum: string }): Promise<{ record: FileRecord; state: DemoState }> {
+  if (!session.permissions.includes("files.manage") || !session.enabledModules.includes("files")) throw new DemoError("DENIED", "No tienes permiso para subir archivos.");
+  const db = await getDatabase();
+  return db.$transaction(async (tx) => {
+    await lockPanel(tx);
+    const previous = await readState(tx);
+    if (memberFor(previous, session.userId, session.organizationId)?.status !== "Activo") throw new DemoError("DENIED", "Sesión no autorizada.");
+    const [usage] = await tx.$queryRaw<{ total: bigint }[]>`
+      SELECT COALESCE(sum(octet_length(b.content)), 0)::bigint AS total FROM file_blobs b
+      JOIN files f ON f.id = b.file_id WHERE f."organizationId" = ${session.organizationId}
+    `;
+    if ((usage?.total ?? 0n) + BigInt(input.bytes.length) > 100n * 1024n * 1024n) throw new DemoError("VALIDATION", "La empresa alcanzó el límite de 100 MB de archivos.");
+    let state = structuredClone(previous);
+    state.accountId = session.userId;
+    state.organizationId = session.organizationId;
+    const service = createMockService(() => state, (change) => { const next = structuredClone(state); change(next); state = next; });
+    const record = await service.addFile(session.organizationId, { name: input.name, mimeType: input.mimeType, size: input.bytes.length });
+    const newEvents = state.audit.filter((event) => !previous.audit.some((old) => old.id === event.id));
+    const emails = prepareNotifications(state, newEvents);
+    await writeState(state, tx, previous);
+    await tx.fileBlob.create({ data: { fileId: record.id, content: input.bytes, checksum: input.checksum } });
+    await queueEmails(tx, emails);
+    return { record, state: scopedState(state, session) };
   }, { maxWait: 10_000, timeout: 30_000 });
 }
 

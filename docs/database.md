@@ -60,6 +60,10 @@ erDiagram
     USERS ||--o{ NOTIFICATIONS : recibe
     ORGANIZATIONS ||--o{ AUDIT_EVENTS : registra
     USERS ||--o{ AUDIT_EVENTS : actua
+    FILES ||--o| FILE_BLOBS : almacena
+    ORGANIZATIONS ||--o{ AUDIT_SEALS : verifica
+    ORGANIZATIONS ||--o{ EMAIL_OUTBOX : envia
+    USERS ||--o{ EMAIL_OUTBOX : recibe
     PANEL_STATE {
         int id PK
         int version
@@ -146,6 +150,24 @@ erDiagram
         int failures
         bigint blocked_until
     }
+    FILE_BLOBS {
+        string file_id PK,FK
+        bytes content
+        string checksum
+    }
+    AUDIT_SEALS {
+        string event_id PK
+        string organization_id FK
+        bigint sequence
+        string chain_hash
+    }
+    EMAIL_OUTBOX {
+        string id PK
+        string organization_id FK
+        string user_id FK
+        string status
+        int attempts
+    }
 ```
 
 ## Tablas e integridad
@@ -165,10 +187,33 @@ erDiagram
 | `credentials` | Una credencial por usuario; sal aleatoria y hash scrypt. |
 | `sessions` | Hash SHA-256 del token, membresía, creación y vencimiento. Índices por usuario y vencimiento. |
 | `login_attempts` | Contador y bloqueo temporal por correo; admite correos inexistentes para controlar intentos fallidos. |
+| `file_blobs` | Contenido privado y SHA-256 de un archivo; se elimina con su registro. |
+| `audit_seals` | Cadena HMAC por empresa; conserva sellos al expirar eventos. |
+| `email_outbox` | Entregas de correo pendientes, enviadas o fallidas con reintentos. |
 
 Las fechas de las entidades conservan las cadenas ISO del contrato actual. Los tiempos de autenticación son `BIGINT` en milisegundos Unix. Los identificadores conservan los IDs de semillas y UUID generados por el servicio. Las FK de propietarios y actores restringen su eliminación; eliminar usuarios o membresías revoca sus sesiones por cascada. `entityId` de auditoría es una referencia polimórfica, sin FK. El campo `panel_state.organization_id` es metadato del contrato, sin FK.
 
 Las tablas se crean con RLS activado y sin políticas Data API; además, la migración revoca `PUBLIC`, `anon`, `authenticated` y `service_role`. Las credenciales y sesiones solo son accesibles con la conexión directa de servidor de Prisma. No conectes el navegador a estas tablas con la clave publicable: los permisos de la aplicación se comprueban en sus rutas de servidor.
+
+## Servicios de la fase 3
+
+Aplica `20261006010000_transversal_services` con `npm run db:migrate` antes de iniciar la nueva versión. La migración añade `file_blobs`, `audit_seals` y `email_outbox`; se incluye el mismo SQL en `supabase/migrations/`. No vuelvas a aplicar la migración inicial. Configura estas variables en el servidor:
+
+```dotenv
+PANEL_AUDIT_HMAC_KEY="64_O_MAS_CARACTERES_HEXADECIMALES_ALEATORIOS"
+PANEL_AUDIT_RETENTION_DAYS="365"
+PANEL_MAINTENANCE_TOKEN="TOKEN_ALEATORIO_DE_32_CARACTERES_O_MAS"
+RESEND_API_KEY=""
+PANEL_EMAIL_FROM=""
+```
+
+Genera una clave HMAC de 32 bytes con `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` y guárdala fuera del repositorio. No la cambies después de sellar eventos: la verificación usa la misma clave para todo el historial. `PANEL_AUDIT_RETENTION_DAYS` admite entre 30 y 3650 días; el valor predeterminado es 365.
+
+Los nuevos archivos se reciben por `/api/files` en multipart, se limitan a 5 MB por archivo y 100 MB de contenido por empresa, y admiten PDF, PNG, JPEG, WebP y texto UTF-8. El servidor comprueba tamaño, nombre y firma; `file_blobs` guarda el contenido y un SHA-256, comprobado al descargar. La descarga por `/api/files/:id` valida sesión, empresa y permiso `files.read` y devuelve el contenido como adjunto. Eliminar el registro borra el contenido por cascada. Los registros semilla siguen apuntando a muestras públicas.
+
+Las operaciones de negocio generan avisos para las otras cuentas activas de la empresa según sus preferencias. La entrega de correo requiere `RESEND_API_KEY` y `PANEL_EMAIL_FROM` con un remitente verificado en Resend. La cola `email_outbox` guarda intentos, reintentos y resultado; la petición principal confirma la transacción antes de intentar entregar. Los reintentos se procesan con una llamada periódica `POST /api/maintenance` y encabezado `Authorization: Bearer <PANEL_MAINTENANCE_TOKEN>`. No expongas el token en el navegador. El mantenimiento purga entregas enviadas o fallidas con más de 30 días. Un administrador ve los recuentos de correos pendientes, en reintento y fallidos en Notificaciones. Los mensajes son genéricos y no incluyen valores de auditoría ni secretos.
+
+Cada evento nuevo recibe un sello HMAC en una cadena por empresa. Al primer arranque tras la migración se sellan los eventos anteriores; en arranques posteriores, un evento sin sello bloquea el mantenimiento para que no se legitime una alteración. `GET /api/audit/integrity` comprueba la cadena y el contenido conservado. El mantenimiento elimina eventos que superan la retención y conserva sus sellos; la verificación permite que falte solo contenido ya vencido. La cadena detecta cambios de eventos y sellos intermedios, aunque por sí sola no detecta el borrado simultáneo del extremo final de la cadena y sus eventos. Para una garantía frente a un administrador de la base, exporta periódicamente la última huella a un sistema externo inmutable.
 
 Las API siguen validando sesión, membresía activa y permisos en el servidor. Las FK de archivos y notificaciones garantizan la existencia de cuenta y empresa; el servicio valida su ámbito. Los estados, categorías y permisos se validan en la capa de dominio.
 
@@ -176,6 +221,6 @@ Las API siguen validando sesión, membresía activa y permisos en el servidor. L
 
 Las escrituras de negocio usan transacciones con `pg_advisory_xact_lock(721831)`; las lecturas del estado usan una única sentencia SQL con agregaciones JSON, coherente por la instantánea MVCC de PostgreSQL, sin adquirir ese bloqueo. El bloqueo es compartido por todas las instancias conectadas a la misma base y evita pérdidas de actualizaciones durante el ciclo lectura/modificación/escritura. La escritura compara el estado anterior y posterior, actualiza solo registros modificados, guarda preferencias como JSONB mediante upsert y sincroniza eliminaciones cuando existen. Cambiar una contraseña y revocar sesiones es atómico; los incrementos de intentos fallidos también lo son.
 
-La carga inicial filtra cuenta, empresa y permisos en SQL; la auditoría inicial se limita a los 500 eventos más recientes. Las API de listas consultan únicamente su entidad, con filtros y paginación SQL (máximo 500 registros por página), sin incluir una copia del estado. Usuarios se ordena con la colación española `es-x-icu`, disponible en este proyecto Supabase; otros PostgreSQL deben disponer de esa colación ICU. Una única consulta con JOIN valida vigencia de sesión, membresía activa, permisos y módulos; React solo la reutiliza dentro del render actual. El guardado de preferencias consulta únicamente la membresía y preferencia propias; un CTE escribe preferencia y auditoría juntas. Las demás mutaciones aún cargan el contrato completo, en una sola sentencia, y persisten diferencias bajo el bloqueo global. Para volúmenes altos conviene completar la migración de esas mutaciones a operaciones por entidad y bloqueos más específicos. La auditoría aún no implementa inmutabilidad ni retención; los archivos y envíos siguen siendo de muestra.
+La carga inicial filtra cuenta, empresa y permisos en SQL; la auditoría inicial se limita a los 500 eventos más recientes. Las API de listas consultan únicamente su entidad, con filtros y paginación SQL (máximo 500 registros por página), sin incluir una copia del estado. Usuarios se ordena con la colación española `es-x-icu`, disponible en este proyecto Supabase; otros PostgreSQL deben disponer de esa colación ICU. Una única consulta con JOIN valida vigencia de sesión, membresía activa, permisos y módulos; React solo la reutiliza dentro del render actual. El guardado de preferencias consulta únicamente la membresía y preferencia propias; un CTE escribe preferencia y auditoría juntas. Las demás mutaciones aún cargan el contrato completo, en una sola sentencia, y persisten diferencias bajo el bloqueo global. Para volúmenes altos conviene completar la migración de esas mutaciones a operaciones por entidad y bloqueos más específicos.
 
 El navegador reutiliza las listas de la carga inicial durante un máximo de 15 segundos y deduplica lecturas por cuenta, empresa, método y filtros (máximo 128 entradas en memoria). Al caducar, la siguiente consulta vuelve al servidor. Refrescar, salir, cambiar de empresa y modificar datos invalidan las entradas pertinentes; los cambios de preferencias actualizan solo las preferencias y la auditoría autorizada. No hay caché compartida de permisos entre peticiones ni persistencia de datos de negocio en localStorage.

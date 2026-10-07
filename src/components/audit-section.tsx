@@ -18,6 +18,16 @@ export function AuditSection() {
   const [from, setFrom] = useState("");
   const [until, setUntil] = useState("");
   const [detail, setDetail] = useState<AuditEvent | null>(null);
+  const [integrity, setIntegrity] = useState("");
+  async function checkIntegrity() {
+    setIntegrity("Comprobando integridad…");
+    try {
+      const response = await fetch("/api/audit/integrity", { cache: "no-store" });
+      const result = await response.json() as { valid?: boolean; events?: number; issue?: string; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "No se pudo comprobar la auditoría.");
+      setIntegrity(result.valid ? `Integridad verificada: ${result.events ?? 0} sellos.` : result.issue ?? "Se detectó una alteración.");
+    } catch (error) { setIntegrity(error instanceof Error ? error.message : "No se pudo comprobar la auditoría."); }
+  }
   useEffect(() => {
     let live = true;
     service.listAudit(state.organizationId, { page: 1, pageSize: 500 }).then((result) => { if (live) { setEvents(result.items); setLoading(false); setError(""); } }).catch((reason) => { if (live) { setError(reason instanceof Error ? reason.message : "No se pudo cargar la auditoría."); setLoading(false); } });
@@ -25,7 +35,8 @@ export function AuditSection() {
   }, [service, state.organizationId, state.audit, state.scenario, state.latency]);
   const rows = events.filter((item) => (!module || item.module === module) && (!actor || item.actorId === actor) && (!from || item.createdAt.slice(0, 10) >= from) && (!until || item.createdAt.slice(0, 10) <= until));
   return <>
-    <PageHeading eyebrow="Registro" title="Auditoría" description="Eventos de la empresa activa." />
+    <PageHeading eyebrow="Registro" title="Auditoría" description="Eventos de la empresa activa." aside={<button className="rounded-lg border border-border px-3 py-2 text-sm" onClick={() => void checkIntegrity()}>Comprobar integridad</button>} />
+    {integrity && <p role="status" className="mb-4 rounded-lg bg-surface-muted p-3 text-sm">{integrity}</p>}
     <Card className="p-5">
       <div className="grid gap-3 sm:grid-cols-4">
         <label className="text-sm">Módulo<select className={field} value={module} onChange={(event) => setModule(event.target.value)}><option value="">Todos</option>{[...new Set(events.map((item) => item.module))].map((item) => <option key={item}>{item}</option>)}</select></label>

@@ -33,6 +33,8 @@ model Organization {
   files          FileRecord[]
   notifications  Notification[]
   audit          AuditEvent[]
+  auditSeals     AuditSeal[]
+  emailOutbox    EmailOutbox[]
   @@map("organizations")
 }
 
@@ -58,6 +60,7 @@ model User {
   files         FileRecord[]
   notifications Notification[]
   audit         AuditEvent[]
+  emailOutbox   EmailOutbox[]
   @@map("users")
 }
 
@@ -110,8 +113,17 @@ model FileRecord {
   sampleAssetPath String?
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   owner           User @relation(fields: [ownerId], references: [id])
+  blob            FileBlob?
   @@index([organizationId])
   @@map("files")
+}
+
+model FileBlob {
+  fileId   String @id @map("file_id")
+  content  Bytes  @db.ByteA
+  checksum String
+  file     FileRecord @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  @@map("file_blobs")
 }
 
 model Notification {
@@ -144,6 +156,40 @@ model AuditEvent {
   actor          User @relation(fields: [actorId], references: [id])
   @@index([organizationId, createdAt])
   @@map("audit_events")
+}
+
+model AuditSeal {
+  eventId        String @id @map("event_id")
+  organizationId String @map("organization_id")
+  sequence       BigInt
+  previousHash   String @map("previous_hash")
+  payloadHash    String @map("payload_hash")
+  chainHash      String @map("chain_hash")
+  eventCreatedAt String @map("event_created_at")
+  sealedAt       BigInt @map("sealed_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@unique([organizationId, sequence])
+  @@map("audit_seals")
+}
+
+model EmailOutbox {
+  id             String @id
+  organizationId String @map("organization_id")
+  userId         String @map("user_id")
+  recipient      String
+  subject        String
+  body           String
+  status         String
+  attempts       Int
+  nextAttemptAt  BigInt @map("next_attempt_at")
+  createdAt      BigInt @map("created_at")
+  sentAt         BigInt? @map("sent_at")
+  providerId     String? @map("provider_id")
+  lastError      String? @map("last_error")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([status, nextAttemptAt])
+  @@map("email_outbox")
 }
 
 model Credential {

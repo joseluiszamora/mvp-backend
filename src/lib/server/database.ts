@@ -4,6 +4,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, Prisma } from "@/generated/prisma/client";
 import { DemoError, seedDemo, type DemoState, type Permission } from "@/lib/demo";
+import { maintainAudit, sealEvents } from "@/lib/server/audit-integrity";
 
 const SESSION_SECONDS = 8 * 60 * 60;
 export const sessionCookie = "panel_admin_session";
@@ -39,21 +40,23 @@ export async function getDatabase(): Promise<PrismaClient> {
       const [initialized] = await db.$queryRaw<{ version: number | null; credentials: boolean }[]>`
         SELECT (SELECT version FROM panel_state WHERE id = 1) AS version, EXISTS(SELECT 1 FROM credentials) AS credentials
       `;
-      if (initialized?.version === 2 && (!password || !email || initialized.credentials)) return;
-      await atomic(db, async (tx) => {
-        if (!await tx.panelState.findUnique({ where: { id: 1 } })) await writeState(seedDemo(), tx);
-        const password = process.env.PANEL_ADMIN_BOOTSTRAP_PASSWORD;
-        const email = process.env.PANEL_ADMIN_BOOTSTRAP_EMAIL?.trim().toLowerCase();
-        if (password && email && await tx.credential.count() === 0) {
-          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("PANEL_ADMIN_BOOTSTRAP_EMAIL no es válido.");
-          const state = await readState(tx);
-          const admin = state.users.find((item) => item.id === "andes-u1");
-          if (!admin) throw new Error("Falta la cuenta inicial de administración.");
-          admin.email = email;
-          await writeState(state, tx);
-          await setCredential(admin.id, password, tx);
-        }
-      });
+      if (initialized?.version !== 2 || (password && email && !initialized?.credentials)) {
+        await atomic(db, async (tx) => {
+          if (!await tx.panelState.findUnique({ where: { id: 1 } })) await writeState(seedDemo(), tx);
+          const password = process.env.PANEL_ADMIN_BOOTSTRAP_PASSWORD;
+          const email = process.env.PANEL_ADMIN_BOOTSTRAP_EMAIL?.trim().toLowerCase();
+          if (password && email && await tx.credential.count() === 0) {
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("PANEL_ADMIN_BOOTSTRAP_EMAIL no es válido.");
+            const state = await readState(tx);
+            const admin = state.users.find((item) => item.id === "andes-u1");
+            if (!admin) throw new Error("Falta la cuenta inicial de administración.");
+            admin.email = email;
+            await writeState(state, tx);
+            await setCredential(admin.id, password, tx);
+          }
+        });
+      }
+      await atomic(db, maintainAudit);
     })().catch((error: unknown) => { globalDatabase.panelInitialization = undefined; throw error; });
   }
   await globalDatabase.panelInitialization;
@@ -129,10 +132,13 @@ export async function writeState(state: DemoState, db?: Database, previous?: Dem
     for (const data of changed(state.memberships, previous?.memberships)) await tx.membership.upsert({ where: { id: data.id }, create: data, update: data });
     for (const data of changed(state.files, previous?.files)) await tx.fileRecord.upsert({ where: { id: data.id }, create: data, update: data });
     for (const data of changed(state.notifications, previous?.notifications)) await tx.notification.upsert({ where: { id: data.id }, create: data, update: data });
-    for (const event of changed(state.audit, previous?.audit)) {
+    const newEvents = state.audit.filter((event) => !previous?.audit.some((old) => old.id === event.id));
+    if (previous?.audit.some((old) => state.audit.some((event) => event.id === old.id && JSON.stringify(event) !== JSON.stringify(old)))) throw new Error("Los eventos de auditoría no se pueden modificar.");
+    for (const event of newEvents) {
       const data = { ...event, before: json(event.before), after: json(event.after) };
-      await tx.auditEvent.upsert({ where: { id: data.id }, create: data, update: data });
+      await tx.auditEvent.create({ data });
     }
+    await sealEvents(tx, newEvents);
     for (const membership of state.memberships) {
       const payload = state.preferences[`${membership.userId}:${membership.organizationId}`];
       if (JSON.stringify(payload) === JSON.stringify(previous?.preferences[`${membership.userId}:${membership.organizationId}`]) && previous) continue;
@@ -144,7 +150,6 @@ export async function writeState(state: DemoState, db?: Database, previous?: Dem
     }
     if (!previous || previous.files.some((old) => !state.files.some((row) => row.id === old.id))) await tx.fileRecord.deleteMany({ where: { id: { notIn: state.files.map((item) => item.id) } } });
     if (!previous || previous.notifications.some((old) => !state.notifications.some((row) => row.id === old.id))) await tx.notification.deleteMany({ where: { id: { notIn: state.notifications.map((item) => item.id) } } });
-    if (!previous || previous.audit.some((old) => !state.audit.some((row) => row.id === old.id))) await tx.auditEvent.deleteMany({ where: { id: { notIn: state.audit.map((item) => item.id) } } });
     if (!previous || previous.memberships.some((old) => !state.memberships.some((row) => row.id === old.id))) await tx.membership.deleteMany({ where: { id: { notIn: state.memberships.map((item) => item.id) } } });
     if (!previous || previous.roles.some((old) => !state.roles.some((row) => row.id === old.id))) await tx.role.deleteMany({ where: { id: { notIn: state.roles.map((item) => item.id) } } });
     if (!previous || previous.organizations.flatMap((org) => org.branches).some((old) => !state.organizations.some((org) => org.branches.some((row) => row.id === old.id)))) await tx.branch.deleteMany({ where: { id: { notIn: state.organizations.flatMap((item) => item.branches.map((branch) => branch.id)) } } });
@@ -180,7 +185,9 @@ export async function loginBlocked(email: string, db?: Database): Promise<boolea
 }
 export async function recordLoginFailure(email: string, db?: Database): Promise<void> {
   await atomic(db ?? await getDatabase(), async (tx) => {
-    const record = await tx.loginAttempt.upsert({ where: { email }, create: { email, failures: 1, blockedUntil: 0 }, update: { failures: { increment: 1 } } });
+    const existing = await tx.loginAttempt.findUnique({ where: { email } });
+    const expired = existing && existing.blockedUntil > 0 && existing.blockedUntil <= BigInt(Date.now());
+    const record = await tx.loginAttempt.upsert({ where: { email }, create: { email, failures: 1, blockedUntil: 0 }, update: expired ? { failures: 1, blockedUntil: 0 } : { failures: { increment: 1 } } });
     if (record.failures >= 5) await tx.loginAttempt.update({ where: { email }, data: { blockedUntil: BigInt(Date.now() + 15 * 60_000) } });
   });
 }

@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { DemoError } from "@/lib/demo";
+import { dispatchOutbox } from "@/lib/server/notification-delivery";
 import { currentSession, runOperation, snapshot, validOrigin } from "@/lib/server/panel";
 
 export const runtime = "nodejs";
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
   if (typeof body?.method !== "string" || !Array.isArray(body.args)) return NextResponse.json({ error: "Solicitud inválida." }, { status: 400 });
   try {
     const result = await runOperation(session, body.method, body.args);
+    after(() => dispatchOutbox(5).catch(() => {}));
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof DemoError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.code === "DENIED" ? 403 : error.code === "NOT_FOUND" ? 404 : 400 });

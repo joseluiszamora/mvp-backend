@@ -80,6 +80,13 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     return task;
   }, [acceptState]);
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!ready || !state.accountId) return;
+    const update = () => { if (document.visibilityState === "visible") void refresh(); };
+    const timer = window.setInterval(update, 60_000);
+    window.addEventListener("focus", update);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", update); };
+  }, [ready, state.accountId, refresh]);
   useEffect(() => { if (!ready) return; applyAccents(state); const org = state.organizations.find((item) => item.id === state.organizationId); let icon = document.querySelector<HTMLLinkElement>('link[data-panel-favicon="true"]'); if (org?.favicon && state.accountId) { if (!icon) { icon = document.createElement("link"); icon.rel = "icon"; icon.dataset.panelFavicon = "true"; document.head.appendChild(icon); } icon.href = org.favicon; } else icon?.remove(); }, [state, ready]);
   const service = useMemo<MockService>(() => {
     let mutationQueue: Promise<void> = Promise.resolve();

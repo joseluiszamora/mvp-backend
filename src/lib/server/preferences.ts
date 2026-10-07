@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma } from "@/generated/prisma/client";
 import { DemoError, type AuditEvent, type DemoState, type Preferences } from "@/lib/demo";
 import { createMockService } from "@/lib/demo-service";
+import { sealEvents } from "@/lib/server/audit-integrity";
 
 // Se ejecuta dentro de la transacción que posee el bloqueo de escritura del panel.
 export async function writePreferences(tx: Prisma.TransactionClient, session: { userId: string; organizationId: string }, changes: Record<string, unknown>): Promise<{ preference: Preferences; event: AuditEvent }> {
@@ -31,5 +32,6 @@ export async function writePreferences(tx: Prisma.TransactionClient, session: { 
     SELECT ${event.id}, ${event.organizationId}, ${event.actorId}, ${event.module}, ${event.action}, ${event.entityId},
       ${JSON.stringify(event.before)}::jsonb, ${JSON.stringify(event.after)}::jsonb, ${event.createdAt} FROM saved
   `);
+  await sealEvents(tx, [event]);
   return { preference: payload, event };
 }
