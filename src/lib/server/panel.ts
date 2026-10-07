@@ -114,7 +114,7 @@ export async function uploadFile(session: ServerSession, input: { name: string; 
     const newEvents = state.audit.filter((event) => !previous.audit.some((old) => old.id === event.id));
     const emails = prepareNotifications(state, newEvents);
     await writeState(state, tx, previous);
-    await tx.fileBlob.create({ data: { fileId: record.id, content: input.bytes, checksum: input.checksum } });
+    await tx.fileBlob.create({ data: { fileId: record.id, content: new Uint8Array(input.bytes), checksum: input.checksum } });
     await queueEmails(tx, emails);
     return { record, state: scopedState(state, session) };
   }, { maxWait: 10_000, timeout: 30_000 });

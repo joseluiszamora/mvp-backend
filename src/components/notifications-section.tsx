@@ -15,9 +15,10 @@ export function NotificationsSection() {
   const [delivery, setDelivery] = useState<Record<string, number> | null>(null);
   useEffect(() => { fetch("/api/notifications/config", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
     .then((value: { emailAvailable?: boolean } | null) => setEmailAvailable(!!value?.emailAvailable)).catch(() => setEmailAvailable(false)); }, []);
-  useEffect(() => { if (!permissionFor(state, "settings.manage")) return; fetch("/api/notifications/delivery", { cache: "no-store" })
+  const canManageSettings = permissionFor(state, "settings.manage");
+  useEffect(() => { if (!canManageSettings) return; fetch("/api/notifications/delivery", { cache: "no-store" })
     .then((response) => response.ok ? response.json() : null).then((value: { counts?: Record<string, number> } | null) => setDelivery(value?.counts ?? null))
-    .catch(() => setDelivery(null)); }, [state.accountId, state.organizationId, state.roles, state.memberships]);
+    .catch(() => setDelivery(null)); }, [canManageSettings, state.accountId, state.organizationId]);
   useEffect(() => { let live = true; service.listNotifications(state.organizationId).then((items) => { if (live) { setNotes(items); setLoading(false); setMessage(""); } }).catch((error) => { if (live) { setLoading(false); setMessage(error instanceof Error ? error.message : "No se pudieron cargar las notificaciones."); } }); return () => { live = false; }; }, [service, state.organizationId, state.accountId, state.notifications, state.scenario, state.latency]);
   const unread = notes.filter((item) => !item.readAt).length;
   const key = `${state.accountId}:${state.organizationId}`;
