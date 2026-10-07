@@ -16,6 +16,8 @@ Panel Admin es un panel administrativo modular en español. La fase 2 incorporó
 
 ## Comportamiento
 
+La guía [docs/funcionalidades.md](funcionalidades.md) documenta las secciones disponibles, roles semilla, preferencias, límites funcionales y tareas operativas.
+
 - El primer arranque de una base vacía usa `PANEL_ADMIN_BOOTSTRAP_EMAIL` y `PANEL_ADMIN_BOOTSTRAP_PASSWORD` para habilitar la cuenta administradora inicial. Las demás cuentas semilla no tienen credencial hasta que un administrador la establezca.
 - El correo identifica una cuenta global; las membresías y los roles determinan sus permisos por empresa. El cambio de empresa solo admite membresías activas.
 - Las sesiones se identifican con un token aleatorio en una cookie HTTP-only. El servidor almacena su resumen, vencimiento y empresa activa. Salir revoca la sesión; cambiar una contraseña revoca todas las sesiones de esa cuenta.

@@ -51,3 +51,5 @@ La sesión usa una cookie HTTP-only, SameSite=Lax y un token aleatorio cuyo resu
 - `src/lib/appearance.ts` y `src/app/globals.css`: paleta y tokens de temas.
 
 Consulta [AGENTS.md](AGENTS.md), [el contexto del proyecto](docs/project-context.md) y [las instrucciones de evolución](docs/admin-panel-generico-instrucciones.md).
+
+Para conocer las funciones, permisos y límites actuales, consulta la [guía de funcionalidades](docs/funcionalidades.md). La configuración y operación de PostgreSQL, correo y mantenimiento se describen en [docs/database.md](docs/database.md).
