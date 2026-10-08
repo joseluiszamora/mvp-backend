@@ -30,21 +30,41 @@ function chainHash(previous: string, payload: string, eventId: string): string {
 }
 
 export async function sealEvents(tx: Prisma.TransactionClient, events: AuditEvent[]): Promise<void> {
-  const ordered = [...events].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  const ordered = [...new Map(events.map((event) => [event.id, event])).values()]
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  if (!ordered.length) return;
+
+  const sealedIds = new Set<string>();
+  for (let offset = 0; offset < ordered.length; offset += 1000) {
+    const existing = await tx.auditSeal.findMany({
+      where: { eventId: { in: ordered.slice(offset, offset + 1000).map((event) => event.id) } },
+      select: { eventId: true },
+    });
+    for (const seal of existing) sealedIds.add(seal.eventId);
+  }
+  const pending = ordered.filter((event) => !sealedIds.has(event.id));
+  if (!pending.length) return;
+
   const heads = new Map<string, { sequence: bigint; hash: string }>();
-  for (const event of ordered) {
-    if (await tx.auditSeal.findUnique({ where: { eventId: event.id }, select: { eventId: true } })) continue;
-    let head = heads.get(event.organizationId);
-    if (!head) {
-      const latest = await tx.auditSeal.findFirst({ where: { organizationId: event.organizationId }, orderBy: { sequence: "desc" }, select: { sequence: true, chainHash: true } });
-      head = { sequence: latest?.sequence ?? 0n, hash: latest?.chainHash ?? ZERO };
-    }
+  const organizations = [...new Set(pending.map((event) => event.organizationId))];
+  const latestSeals = await Promise.all(organizations.map((organizationId) =>
+    tx.auditSeal.findFirst({ where: { organizationId }, orderBy: { sequence: "desc" }, select: { organizationId: true, sequence: true, chainHash: true } }),
+  ));
+  for (let index = 0; index < organizations.length; index++) {
+    const latest = latestSeals[index];
+    heads.set(organizations[index], { sequence: latest?.sequence ?? 0n, hash: latest?.chainHash ?? ZERO });
+  }
+
+  const seals: Prisma.AuditSealCreateManyInput[] = [];
+  for (const event of pending) {
+    const head = heads.get(event.organizationId)!;
     const hash = payloadHash(event);
     const chained = chainHash(head.hash, hash, event.id);
-    await tx.auditSeal.create({ data: { eventId: event.id, organizationId: event.organizationId, sequence: head.sequence + 1n,
-      previousHash: head.hash, payloadHash: hash, chainHash: chained, eventCreatedAt: event.createdAt, sealedAt: BigInt(Date.now()) } });
+    seals.push({ eventId: event.id, organizationId: event.organizationId, sequence: head.sequence + 1n,
+      previousHash: head.hash, payloadHash: hash, chainHash: chained, eventCreatedAt: event.createdAt, sealedAt: BigInt(Date.now()) });
     heads.set(event.organizationId, { sequence: head.sequence + 1n, hash: chained });
   }
+  await tx.auditSeal.createMany({ data: seals });
 }
 
 export function retentionDays(): number {

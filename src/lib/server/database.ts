@@ -56,7 +56,10 @@ export async function getDatabase(): Promise<PrismaClient> {
           }
         });
       }
-      await atomic(db, maintainAudit);
+      await db.$transaction(async (tx) => {
+        await lockPanel(tx);
+        return maintainAudit(tx);
+      }, { maxWait: 10_000, timeout: 120_000 });
     })().catch((error: unknown) => { globalDatabase.panelInitialization = undefined; throw error; });
   }
   await globalDatabase.panelInitialization;
