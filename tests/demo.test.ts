@@ -3,6 +3,10 @@ import test from "node:test";
 import { permissionFor, seedDemo, type DemoState } from "../src/lib/demo";
 import { createMockService } from "../src/lib/demo-service";
 import { scopedState } from "../src/lib/scope";
+import { maxAvatarBytes } from "../src/lib/file-signature";
+
+const pngAvatar = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64")}`;
+const jpegAvatar = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64")}`;
 
 function setup() {
   let state = seedDemo();
@@ -36,7 +40,69 @@ test("crear usuario actualiza datos y auditoría de la empresa", async () => {
   assert.equal((await demo.service.listUsers({ organizationId: "andes", search: "nueva" })).total, 1);
   assert.equal(demo.state.audit[0].entityId, created.id);
   assert.equal(demo.state.audit[0].organizationId, "andes");
+  const updated = await demo.service.saveUser({ id: created.id, organizationId: "andes", name: "Persona Actualizada", email: "actualizada@example.com", roleId: "andes-consulta" });
+  assert.equal(updated.id, created.id);
+  assert.equal(updated.name, "Persona Actualizada");
   assert.equal(demo.state.memberships.filter((item) => item.organizationId === "altiplano").length, 13);
+});
+
+test("búsqueda, filtros y paginación de usuarios se combinan", async () => {
+  const demo = setup();
+  const filters = { organizationId: "andes", search: "example.com", roleId: "andes-consulta", status: "Activo" as const, pageSize: 2, sort: "asc" as const };
+  const first = await demo.service.listUsers({ ...filters, page: 1 });
+  const second = await demo.service.listUsers({ ...filters, page: 2 });
+  assert.ok(first.total > 2);
+  assert.equal(first.total, second.total);
+  assert.equal(first.items.length, 2);
+  assert.equal(second.items.length, 2);
+  assert.ok([...first.items, ...second.items].every((item) => item.email.includes("example.com") && item.roleId === "andes-consulta" && item.status === "Activo"));
+  assert.ok(first.items.every((item) => !second.items.some((other) => other.id === item.id)));
+});
+
+test("la fotografía se crea, reemplaza y quita en la cuenta global sin registrar datos en auditoría", async () => {
+  const demo = setup();
+  const input = { id: "andes-u1", organizationId: "andes", name: "María Fernández", email: "admin.andes@example.com", roleId: "andes-admin" };
+  await demo.service.saveUser({ ...input, avatar: pngAvatar });
+  assert.equal(demo.state.users.find((item) => item.id === input.id)?.avatar, pngAvatar);
+  assert.equal(demo.state.memberships.filter((item) => item.userId === input.id).length, 2);
+
+  await demo.service.saveUser({ ...input, avatar: jpegAvatar });
+  assert.equal(demo.state.users.find((item) => item.id === input.id)?.avatar, jpegAvatar);
+  await demo.service.saveUser({ ...input, avatar: null });
+  assert.equal(demo.state.users.find((item) => item.id === input.id)?.avatar, null);
+  assert.equal(JSON.stringify(demo.state.audit).includes(pngAvatar), false);
+  assert.equal(JSON.stringify(demo.state.audit).includes(jpegAvatar), false);
+  assert.equal((demo.state.audit[0].after as { avatar: string | null }).avatar, null);
+});
+
+test("el servidor rechaza fotografías con tipo, firma o tamaño inválidos", async () => {
+  const demo = setup();
+  const input = { id: "andes-u2", organizationId: "andes", name: "Carlos Mendoza", email: "andes.u2@example.com", roleId: "andes-consulta" };
+  await assert.rejects(demo.service.saveUser({ ...input, avatar: "data:image/gif;base64,R0lGODlh" }), { code: "VALIDATION" });
+  await assert.rejects(demo.service.saveUser({ ...input, avatar: "data:image/png;base64,AAAA" }), { code: "VALIDATION" });
+  await assert.rejects(demo.service.saveUser({ ...input, avatar: [pngAvatar] as unknown as string }), { code: "VALIDATION" });
+  const oversizedBytes = Buffer.alloc(maxAvatarBytes + 1);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(oversizedBytes);
+  const oversizedAvatar = `data:image/png;base64,${oversizedBytes.toString("base64")}`;
+  await assert.rejects(demo.service.saveUser({ ...input, avatar: oversizedAvatar }), { code: "VALIDATION" });
+});
+
+test("solo quien tiene permiso de edición puede cambiar fotografías de usuarios", async () => {
+  const demo = setup();
+  const input = { id: "andes-u2", organizationId: "andes", name: "Carlos Mendoza", email: "andes.u2@example.com", roleId: "andes-consulta", avatar: pngAvatar };
+  demo.setState({ ...demo.state, accountId: "andes-u4" });
+  await demo.service.saveUser(input);
+  assert.equal(demo.state.users.find((item) => item.id === input.id)?.avatar, pngAvatar);
+  demo.setState({ ...demo.state, accountId: "andes-u2" });
+  await assert.rejects(demo.service.saveUser({ ...input, avatar: jpegAvatar }), { code: "DENIED" });
+});
+
+test("activar y desactivar usuarios conserva el estado elegido", async () => {
+  const demo = setup();
+  await demo.service.changeUserStatus("andes", ["andes-u2"]);
+  assert.equal(demo.state.memberships.find((item) => item.userId === "andes-u2" && item.organizationId === "andes")?.status, "Inactivo");
+  await demo.service.changeUserStatus("andes", ["andes-u2"]);
+  assert.equal(demo.state.memberships.find((item) => item.userId === "andes-u2" && item.organizationId === "andes")?.status, "Activo");
 });
 
 test("una persona conserva membresías independientes en dos empresas", async () => {
@@ -79,7 +145,7 @@ test("escenarios vacío y error son deterministas", async () => {
 
 test("la auditoría no guarda imágenes locales ni secretos", async () => {
   const demo = setup();
-  await demo.service.updateProfile({ avatar: "data:image/png;base64,AAA" });
+  await demo.service.updateProfile({ avatar: pngAvatar });
   assert.equal((demo.state.audit[0].after as { avatar: string }).avatar, "[imagen local]");
 });
 

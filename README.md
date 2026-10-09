@@ -28,6 +28,7 @@ La sesión usa una cookie HTTP-only, SameSite=Lax y un token aleatorio cuyo resu
 ## Datos y límites actuales
 
 - Usuarios, membresías, roles, permisos, empresas y preferencias se leen y escriben en el servidor. Cada petición valida la sesión, la empresa y el permiso correspondiente.
+- Usuarios permite consultar la ficha, buscar, filtrar, ordenar, paginar y administrar membresías. El nombre, el correo y la fotografía PNG/JPEG/WebP (hasta 2 MB, con firma comprobada) se comparten en la cuenta global; el rol y el estado corresponden a cada empresa.
 - Las dos empresas y los datos semilla se crean una sola vez. El administrador inicial tiene membresías independientes en ambas.
 - Los nuevos archivos se guardan como contenido binario privado en PostgreSQL, con límite de 5 MB, tipo y firma comprobados en el servidor. Los archivos semilla conservan sus descargas de muestra. La descarga privada exige sesión, empresa y permiso.
 - Las acciones generan avisos para otras cuentas activas de la empresa según sus preferencias. El correo usa una cola transaccional y Resend cuando se configuran `RESEND_API_KEY` y `PANEL_EMAIL_FROM`; el panel muestra si el correo está disponible. Configura una llamada periódica a `/api/maintenance` con `PANEL_MAINTENANCE_TOKEN` para reintentos y retención. Sin proveedor, no se aceptan nuevas preferencias de correo.

@@ -1,12 +1,14 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import Image from "next/image";
 
 export function Card({ children, className = "", ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div className={`rounded-2xl border border-border bg-surface shadow-[0_1px_3px_rgba(16,24,40,0.04)] ${className}`} {...props}>{children}</div>;
 }
 
-export function Avatar({ name, size = "md" }: { name: string; size?: "md" | "lg" }) {
+export function Avatar({ name, size = "md", photo }: { name: string; size?: "md" | "lg"; photo?: string | null }) {
   const initials = name.split(" ").slice(0, 2).map((part) => part[0]).join("");
-  return <span aria-hidden="true" className={`inline-flex shrink-0 items-center justify-center rounded-full bg-accent-soft font-semibold text-accent-text ${size === "lg" ? "size-11 text-sm" : "size-9 text-xs"}`}>{initials}</span>;
+  const className = `inline-flex shrink-0 items-center justify-center rounded-full object-cover ${size === "lg" ? "size-11 text-sm" : "size-9 text-xs"}`;
+  return photo ? <Image src={photo} alt="" aria-hidden width={size === "lg" ? 44 : 36} height={size === "lg" ? 44 : 36} unoptimized className={className} /> : <span aria-hidden="true" className={`${className} bg-accent-soft font-semibold text-accent-text`}>{initials}</span>;
 }
 
 export function Badge({ active }: { active: boolean }) {
